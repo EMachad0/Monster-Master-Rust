@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(just *)",
+      "Bash(bun *)",
+      "Bash(bunx *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(cd *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(wc *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(diff *)",
+      "Bash(pwd *)",
+      "Bash(which *)",
+      "Bash(env *)",
+      "Bash(echo *)",
+      "Bash(mkdir *)",
+      "Bash(fd *)",
+      "Bash(rg *)",
+      "Bash(z *)",
+      "Bash(rm *)",
+      "Bash(mv *)",
+      "Bash(cp *)",
+      "Bash(chmod *)",
+      "Bash(docker *)",
+      "Bash(docker compose *)",
+      "Bash(curl *)",
+      "Bash(bunx playwright *)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}

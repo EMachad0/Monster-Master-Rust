@@ -1,0 +1,7 @@
+# Optional developer tools.
+# Copy to ../.mise/config.local.toml to enable (shared across worktrees).
+# Then run `mise lock` to create the local lockfile.
+# After that `mise install` will automatically update the lockfile
+# Or copy [tools] to ~/.config/mise/config.toml for global availability.
+# mise merges config.local.toml on top of config.toml (local wins on conflicts).
+

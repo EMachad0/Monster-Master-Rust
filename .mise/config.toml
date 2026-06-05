@@ -1,0 +1,17 @@
+min_version = "2025.1.0"
+
+[settings]
+experimental = true
+
+[tools]
+bun = "latest"
+github-cli = "latest"
+just = "latest"
+node = "24"
+
+[env]
+
+[hooks]
+enter = [
+    "mise install --locked --quiet",
+]

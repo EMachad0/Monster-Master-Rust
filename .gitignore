@@ -1,0 +1,25 @@
+# Output
+dist/
+target/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# editor
+.vscode
+.idea
+
+# claude
+.claude/*.local.md
+
+# mise
+.mise/config.local.toml
+
