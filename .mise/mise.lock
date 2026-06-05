@@ -158,3 +158,7 @@ url = "https://nodejs.org/dist/v24.14.1/node-v24.14.1-win-x64.zip"
 [tools.node."platforms.windows-x64-baseline"]
 checksum = "sha256:6e50ce5498c0cebc20fd39ab3ff5df836ed2f8a31aa093cecad8497cff126d70"
 url = "https://nodejs.org/dist/v24.14.1/node-v24.14.1-win-x64.zip"
+
+[[tools.rust]]
+version = "1.96.0"
+backend = "core:rust"

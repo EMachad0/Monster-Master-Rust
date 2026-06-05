@@ -8,6 +8,7 @@ bun = "latest"
 github-cli = "latest"
 just = "latest"
 node = "24"
+rust = "latest"
 
 [env]
 
