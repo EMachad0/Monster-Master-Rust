@@ -28,7 +28,8 @@ impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
 #[cfg(test)]
 mod tests {
     use crate::lifecycle::stdb_connection::{
-        ConnectionError, StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected,
+        stdb_connected, ConnectionError, StdbConnected, StdbConnection, StdbConnectionError,
+        StdbDisconnected,
     };
 
     use super::*;
@@ -155,6 +156,52 @@ mod tests {
         assert_eq!(
             *app.world().resource::<StdbStatus>(),
             StdbStatus::Disconnected
+        );
+    }
+
+    /// Counts how many times a `stdb_connected`-gated system runs.
+    #[derive(Resource, Default)]
+    struct RunCount(u32);
+
+    fn count_up(mut count: ResMut<RunCount>) {
+        count.0 += 1;
+    }
+
+    #[test]
+    fn stdb_connected_run_condition_gates_systems() {
+        let mut app = App::new();
+        app.add_plugins(StdbPlugin::<FakeConn>::default());
+        app.init_resource::<RunCount>();
+        app.add_systems(Update, count_up.run_if(stdb_connected::<FakeConn>));
+
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+
+        // Disconnected: the gated system never runs.
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<RunCount>().0,
+            0,
+            "gated system must not run before a connection exists",
+        );
+
+        // Connected: it runs. (Two frames: one to drain+insert the resource, one to run.)
+        sink.connected(FakeConn).unwrap();
+        app.update();
+        app.update();
+        let while_connected = app.world().resource::<RunCount>().0;
+        assert!(while_connected > 0, "gated system must run while connected");
+
+        // Disconnected again: it stops.
+        sink.disconnected().unwrap();
+        app.update();
+        let after_disconnect = app.world().resource::<RunCount>().0;
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<RunCount>().0,
+            after_disconnect,
+            "gated system must stop running after disconnect",
         );
     }
 }
