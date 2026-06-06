@@ -10,6 +10,7 @@ pub use crate::row_channel::RowInserted;
 
 mod backoff;
 mod lifecycle;
+mod reconect;
 mod row_channel;
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
@@ -44,8 +45,8 @@ fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
 #[cfg(test)]
 mod tests {
     use crate::lifecycle::stdb_connection::{
-        stdb_connected, ConnectionError, StdbConnected, StdbConnection, StdbConnectionError,
-        StdbDisconnected,
+        ConnectionError, StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected,
+        stdb_connected,
     };
 
     use super::*;
@@ -81,10 +82,11 @@ mod tests {
             *app.world().resource::<StdbStatus>(),
             StdbStatus::Connecting
         );
-        assert!(app
-            .world()
-            .get_resource::<StdbConnection<FakeConn>>()
-            .is_none());
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_none()
+        );
 
         // Push a `Connected` signal through the same seam the SDK adapter uses in production.
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
@@ -120,10 +122,11 @@ mod tests {
         sink.connected(FakeConn).unwrap();
         app.update();
         assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
-        assert!(app
-            .world()
-            .get_resource::<StdbConnection<FakeConn>>()
-            .is_some());
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_some()
+        );
 
         // Now drop the connection.
         sink.disconnected().unwrap();

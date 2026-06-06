@@ -6,7 +6,7 @@ members = ["crates/*"]
 default-members = ["crates/stdb_bevy", "crates/stdb_bindings", "crates/game"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "0.1.0"
 
 # Dependency versions are centralized here; member crates use `<dep>.workspace = true`.

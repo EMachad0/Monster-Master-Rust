@@ -23,10 +23,19 @@ impl Backoff {
     }
 }
 
-fn with_jitter(base: Duration, jitter: f64, sample: f64) -> Duration {
-    let scale = 1.0 - jitter + 2.0 * jitter * sample;
-    let secs = base.as_secs_f64() * scale;
-    Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX)
+pub struct Jitter(pub f64);
+
+impl Jitter {
+    pub fn apply(&self, base: Duration, sample: f64) -> Duration {
+        let jitter = self.0;
+        let scale = 1.0 - jitter + 2.0 * jitter * sample;
+        let secs = base.as_secs_f64() * scale;
+        Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX)
+    }
+
+    pub fn value(&self) -> f64 {
+        self.0
+    }
 }
 
 #[cfg(test)]
@@ -76,10 +85,11 @@ mod tests {
     fn jitter_zero_returns_base_for_any_sample() {
         use std::time::Duration;
 
+        let jitter = Jitter(0.0);
         let base = Duration::from_secs(1);
-        assert_eq!(with_jitter(base, 0.0, 0.0), base);
-        assert_eq!(with_jitter(base, 0.0, 0.5), base);
-        assert_eq!(with_jitter(base, 0.0, 0.99), base);
+        assert_eq!(jitter.apply(base, 0.0), base);
+        assert_eq!(jitter.apply(base, 0.5), base);
+        assert_eq!(jitter.apply(base, 0.99), base);
     }
 
     #[test]
@@ -87,10 +97,11 @@ mod tests {
         use std::time::Duration;
 
         // jitter 0.5 → scale in [0.5, 1.5]; values chosen to be exact in f64.
+        let jitter = Jitter(0.5);
         let base = Duration::from_secs(1);
-        assert_eq!(with_jitter(base, 0.5, 0.0), Duration::from_millis(500)); // lower bound
-        assert_eq!(with_jitter(base, 0.5, 0.5), Duration::from_secs(1)); // midpoint = base
-        assert_eq!(with_jitter(base, 0.5, 1.0), Duration::from_millis(1500)); // upper bound
+        assert_eq!(jitter.apply(base, 0.0), Duration::from_millis(500)); // lower bound
+        assert_eq!(jitter.apply(base, 0.5), Duration::from_secs(1)); // midpoint = base
+        assert_eq!(jitter.apply(base, 1.0), Duration::from_millis(1500)); // upper bound
     }
 
     #[test]
@@ -98,12 +109,12 @@ mod tests {
         use std::time::Duration;
 
         let base = Duration::from_secs(10);
-        let jitter = 0.2;
-        let lower = base.mul_f64(1.0 - jitter);
-        let upper = base.mul_f64(1.0 + jitter);
+        let jitter = Jitter(0.2);
+        let lower = base.mul_f64(1.0 - jitter.value());
+        let upper = base.mul_f64(1.0 + jitter.value());
         for i in 0..=10 {
             let sample = i as f64 / 10.0;
-            let delay = with_jitter(base, jitter, sample);
+            let delay = jitter.apply(base, sample);
             assert!(
                 delay >= lower && delay <= upper,
                 "sample {sample}: {delay:?} not in [{lower:?}, {upper:?}]",
