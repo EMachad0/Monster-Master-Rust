@@ -14,13 +14,14 @@ version = "0.1.0"
 # latest, or `cargo add <crate>`. Hand-editing version strings invites mistakes.
 [workspace.dependencies]
 # --- external ---
-bevy = { version = "0.18.1", default-features = false }
+bevy = { version = "0.18.1", default-features = false, features = ["debug"] }
 spacetimedb = "2.4"
 spacetimedb-sdk = "2.4"
 bevy_asset_loader = "0.26"
 getrandom = "0.4"
 log = "0.4"
 wasm-bindgen-futures = "0.4"
+crossbeam-channel = "0.5.15"
 # --- internal ---
 stdb_bevy = { path = "crates/stdb_bevy" }
 stdb_bindings = { path = "crates/stdb_bindings" }
