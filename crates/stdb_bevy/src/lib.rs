@@ -330,4 +330,28 @@ mod tests {
         );
         assert_eq!(captured[0], Foo { id: 9 });
     }
+
+    #[test]
+    fn bulk_inserts_preserve_count_and_order() {
+        let mut app = App::new();
+        register_table_events::<Foo>(&mut app);
+        app.init_resource::<CapturedInserts>();
+        app.add_systems(Update, capture_inserts);
+
+        // Queue several inserts before a single update — the initial-subscription dump.
+        let sink = app.world().resource::<RowChannel<Foo>>().sink();
+        sink.insert(Foo { id: 1 }).unwrap();
+        sink.insert(Foo { id: 2 }).unwrap();
+        sink.insert(Foo { id: 3 }).unwrap();
+
+        app.update();
+        app.update();
+
+        let captured = &app.world().resource::<CapturedInserts>().0;
+        assert_eq!(
+            *captured,
+            vec![Foo { id: 1 }, Foo { id: 2 }, Foo { id: 3 }],
+            "all queued inserts should surface as messages, in send order",
+        );
+    }
 }
