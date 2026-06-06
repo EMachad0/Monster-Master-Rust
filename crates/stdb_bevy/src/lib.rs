@@ -19,13 +19,17 @@ pub struct StdbPlugin<C: StdbConn> {
 
 impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
     fn build(&self, app: &mut bevy::app::App) {
-        app.insert_resource(StdbStatus::Connecting);
-        app.insert_resource(LifecycleChannel::<C>::new());
-        app.add_systems(
-            bevy::app::Update,
-            lifecycle::lifecycle_channel::drain_lifecycle_sink::<C>,
-        );
+        install_lifecycle::<C>(app);
     }
+}
+
+pub(crate) fn install_lifecycle<C: StdbConn>(app: &mut bevy::app::App) {
+    app.insert_resource(StdbStatus::Connecting);
+    app.insert_resource(LifecycleChannel::<C>::new());
+    app.add_systems(
+        bevy::app::Update,
+        lifecycle::lifecycle_channel::drain_lifecycle_sink::<C>,
+    );
 }
 
 fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
@@ -66,7 +70,7 @@ mod tests {
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::<FakeConn>::default());
+        install_lifecycle::<FakeConn>(&mut app);
 
         app.init_resource::<ObserverFired>();
         app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
@@ -103,7 +107,7 @@ mod tests {
     #[test]
     fn disconnected_signal_triggers_observer_status_and_removes_resource() {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::<FakeConn>::default());
+        install_lifecycle::<FakeConn>(&mut app);
 
         app.init_resource::<DisconnectFired>();
         app.add_observer(
@@ -143,7 +147,7 @@ mod tests {
     #[test]
     fn connect_error_signal_triggers_observer_with_message_and_status() {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::<FakeConn>::default());
+        install_lifecycle::<FakeConn>(&mut app);
 
         app.init_resource::<ConnectErrorCaptured>();
         app.add_observer(
@@ -181,7 +185,7 @@ mod tests {
     #[test]
     fn stdb_connected_run_condition_gates_systems() {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::<FakeConn>::default());
+        install_lifecycle::<FakeConn>(&mut app);
         app.init_resource::<RunCount>();
         app.add_systems(Update, count_up.run_if(stdb_connected::<FakeConn>));
 
