@@ -8,37 +8,37 @@ use crate::lifecycle::stdb_connection::{
     StdbDisconnected, StdbStatus,
 };
 
-pub(crate) enum Lifecycle<C: StdbConn> {
+pub(crate) enum LifecycleEvent<C: StdbConn> {
     Connected(C),
     Disconnected,
     ConnectionError(ConnectionError),
 }
 
 pub(crate) struct LifecycleSink<C: StdbConn> {
-    pub sender: crossbeam_channel::Sender<Lifecycle<C>>,
+    pub sender: crossbeam_channel::Sender<LifecycleEvent<C>>,
 }
 
 impl<C: StdbConn> LifecycleSink<C> {
-    pub fn connected(&self, c: C) -> Result<(), crossbeam_channel::SendError<Lifecycle<C>>> {
-        self.sender.send(Lifecycle::Connected(c))
+    pub fn connected(&self, c: C) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
+        self.sender.send(LifecycleEvent::Connected(c))
     }
 
-    pub fn disconnected(&self) -> Result<(), crossbeam_channel::SendError<Lifecycle<C>>> {
-        self.sender.send(Lifecycle::Disconnected)
+    pub fn disconnected(&self) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
+        self.sender.send(LifecycleEvent::Disconnected)
     }
 
     pub fn connection_error(
         &self,
         error: ConnectionError,
-    ) -> Result<(), crossbeam_channel::SendError<Lifecycle<C>>> {
-        self.sender.send(Lifecycle::ConnectionError(error))
+    ) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
+        self.sender.send(LifecycleEvent::ConnectionError(error))
     }
 }
 
 #[derive(Resource)]
 pub(crate) struct LifecycleChannel<C: StdbConn> {
-    sender: crossbeam_channel::Sender<Lifecycle<C>>,
-    receiver: crossbeam_channel::Receiver<Lifecycle<C>>,
+    sender: crossbeam_channel::Sender<LifecycleEvent<C>>,
+    receiver: crossbeam_channel::Receiver<LifecycleEvent<C>>,
 }
 
 impl<C: StdbConn> LifecycleChannel<C> {
@@ -66,17 +66,17 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 ) {
     while let Ok(stdb_event) = lifecycle_channel.receiver.try_recv() {
         match stdb_event {
-            Lifecycle::Connected(c) => {
+            LifecycleEvent::Connected(c) => {
                 commands.insert_resource(StdbConnection(c));
                 commands.insert_resource(StdbStatus::Connected);
                 commands.trigger(StdbConnected);
             }
-            Lifecycle::Disconnected => {
+            LifecycleEvent::Disconnected => {
                 commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbDisconnected);
             }
-            Lifecycle::ConnectionError(e) => {
+            LifecycleEvent::ConnectionError(e) => {
                 commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbConnectionError::new(e));

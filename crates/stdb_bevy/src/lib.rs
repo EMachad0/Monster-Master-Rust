@@ -3,10 +3,13 @@
 //! This crate knows nothing about any specific Module.
 
 use crate::lifecycle::lifecycle_channel::LifecycleChannel;
+use crate::row_channel::RowChannel;
 
 pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
+pub use crate::row_channel::RowInserted;
 
 mod lifecycle;
+mod row_channel;
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
 #[derive(Clone, Copy, Default)]
@@ -23,6 +26,12 @@ impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
             lifecycle::lifecycle_channel::drain_lifecycle_sink::<C>,
         );
     }
+}
+
+fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
+    app.insert_resource(RowChannel::<T>::new());
+    app.add_message::<RowInserted<T>>();
+    app.add_systems(bevy::app::Update, row_channel::drain_row_sink::<T>);
 }
 
 #[cfg(test)]
@@ -203,5 +212,48 @@ mod tests {
             after_disconnect,
             "gated system must stop running after disconnect",
         );
+    }
+
+    /// A stand-in row type. A real Module row is `Clone + Send + Sync + 'static`.
+    #[derive(Clone, PartialEq, Debug)]
+    struct Foo {
+        id: u32,
+    }
+
+    /// Collects `RowInserted<Foo>` through the public `MessageReader`, like a Game system would.
+    #[derive(Resource, Default)]
+    struct CapturedInserts(Vec<Foo>);
+
+    fn capture_inserts(
+        mut reader: MessageReader<RowInserted<Foo>>,
+        mut captured: ResMut<CapturedInserts>,
+    ) {
+        for msg in reader.read() {
+            captured.0.push(msg.0.clone());
+        }
+    }
+
+    #[test]
+    fn insert_event_becomes_row_inserted_message() {
+        let mut app = App::new();
+        register_table_events::<Foo>(&mut app);
+        app.init_resource::<CapturedInserts>();
+        app.add_systems(Update, capture_inserts);
+
+        // Push a row insert through the same seam the SDK on_insert callback uses in production.
+        let sink = app.world().resource::<RowChannel<Foo>>().sink();
+        sink.insert(Foo { id: 7 });
+
+        // One frame to drain the channel into a message, one for the reader to observe it.
+        app.update();
+        app.update();
+
+        let captured = &app.world().resource::<CapturedInserts>().0;
+        assert_eq!(
+            captured.len(),
+            1,
+            "one queued insert should produce exactly one RowInserted message",
+        );
+        assert_eq!(captured[0], Foo { id: 7 });
     }
 }
