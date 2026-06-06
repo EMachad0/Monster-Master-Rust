@@ -3,10 +3,13 @@ use bevy::ecs::{
     system::{Commands, Res},
 };
 
-use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
+use crate::lifecycle::stdb_connection::{
+    StdbConn, StdbConnected, StdbConnection, StdbDisconnected, StdbStatus,
+};
 
 pub(crate) enum Lifecycle<C: StdbConn> {
     Connected(C),
+    Disconnected,
 }
 
 pub(crate) struct LifecycleSink<C: StdbConn> {
@@ -16,6 +19,10 @@ pub(crate) struct LifecycleSink<C: StdbConn> {
 impl<C: StdbConn> LifecycleSink<C> {
     pub fn connected(&self, c: C) -> Result<(), crossbeam_channel::SendError<Lifecycle<C>>> {
         self.sender.send(Lifecycle::Connected(c))
+    }
+
+    pub fn disconnected(&self) -> Result<(), crossbeam_channel::SendError<Lifecycle<C>>> {
+        self.sender.send(Lifecycle::Disconnected)
     }
 }
 
@@ -54,6 +61,11 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
                 commands.insert_resource(StdbConnection(c));
                 commands.insert_resource(StdbStatus::Connected);
                 commands.trigger(StdbConnected);
+            }
+            Lifecycle::Disconnected => {
+                commands.remove_resource::<StdbConnection<C>>();
+                commands.insert_resource(StdbStatus::Disconnected);
+                commands.trigger(StdbDisconnected);
             }
         }
     }

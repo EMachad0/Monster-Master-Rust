@@ -27,7 +27,7 @@ impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lifecycle::stdb_connection::{StdbConnected, StdbConnection};
+    use crate::lifecycle::stdb_connection::{StdbConnected, StdbConnection, StdbDisconnected};
 
     use super::*;
 
@@ -40,6 +40,10 @@ mod tests {
     /// Set by an observer so the test can assert `StdbConnected` actually fired.
     #[derive(Resource, Default)]
     struct ObserverFired(bool);
+
+    /// Set by an observer so the test can assert `StdbDisconnected` actually fired.
+    #[derive(Resource, Default)]
+    struct DisconnectFired(bool);
 
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
@@ -75,6 +79,46 @@ mod tests {
                 .get_resource::<StdbConnection<FakeConn>>()
                 .is_some(),
             "StdbConnection<C> should be inserted on connect",
+        );
+    }
+
+    #[test]
+    fn disconnected_signal_triggers_observer_status_and_removes_resource() {
+        let mut app = App::new();
+        app.add_plugins(StdbPlugin::<FakeConn>::default());
+
+        app.init_resource::<DisconnectFired>();
+        app.add_observer(
+            |_on: On<StdbDisconnected>, mut fired: ResMut<DisconnectFired>| fired.0 = true,
+        );
+
+        // Connect first, so there is a live connection to drop.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+        assert!(app
+            .world()
+            .get_resource::<StdbConnection<FakeConn>>()
+            .is_some());
+
+        // Now drop the connection.
+        sink.disconnected().unwrap();
+        app.update();
+
+        assert!(
+            app.world().resource::<DisconnectFired>().0,
+            "the StdbDisconnected observer should fire on a Disconnected signal",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_none(),
+            "StdbConnection<C> should be removed on disconnect",
         );
     }
 }
