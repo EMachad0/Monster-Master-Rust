@@ -5591,6 +5591,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "crossbeam-channel",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

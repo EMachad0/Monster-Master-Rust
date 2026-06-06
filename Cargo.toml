@@ -22,6 +22,7 @@ getrandom = "0.4"
 log = "0.4"
 wasm-bindgen-futures = "0.4"
 crossbeam-channel = "0.5.15"
+thiserror = "2.0.18"
 # --- internal ---
 stdb_bevy = { path = "crates/stdb_bevy" }
 stdb_bindings = { path = "crates/stdb_bindings" }

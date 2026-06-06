@@ -27,7 +27,9 @@ impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lifecycle::stdb_connection::{StdbConnected, StdbConnection, StdbDisconnected};
+    use crate::lifecycle::stdb_connection::{
+        ConnectionError, StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected,
+    };
 
     use super::*;
 
@@ -44,6 +46,10 @@ mod tests {
     /// Set by an observer so the test can assert `StdbDisconnected` actually fired.
     #[derive(Resource, Default)]
     struct DisconnectFired(bool);
+
+    /// Captures the error message an observer received, so the test can assert it round-trips.
+    #[derive(Resource, Default)]
+    struct ConnectErrorCaptured(Option<ConnectionError>);
 
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
@@ -119,6 +125,36 @@ mod tests {
                 .get_resource::<StdbConnection<FakeConn>>()
                 .is_none(),
             "StdbConnection<C> should be removed on disconnect",
+        );
+    }
+
+    #[test]
+    fn connect_error_signal_triggers_observer_with_message_and_status() {
+        let mut app = App::new();
+        app.add_plugins(StdbPlugin::<FakeConn>::default());
+
+        app.init_resource::<ConnectErrorCaptured>();
+        app.add_observer(
+            |on: On<StdbConnectionError>, mut captured: ResMut<ConnectErrorCaptured>| {
+                captured.0 = Some(on.event().error());
+            },
+        );
+
+        // Push a connect-error signal through the same seam the SDK adapter uses in production.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connection_error(ConnectionError::ConnectionRefused)
+            .unwrap();
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<ConnectErrorCaptured>().0,
+            Some(ConnectionError::ConnectionRefused),
+            "the StdbConnectionError observer should fire carrying the error message",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
         );
     }
 }

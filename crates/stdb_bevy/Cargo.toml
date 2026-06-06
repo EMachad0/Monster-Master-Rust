@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 bevy = { workspace = true }
 crossbeam-channel = { workspace = true }
+thiserror = { workspace = true }
