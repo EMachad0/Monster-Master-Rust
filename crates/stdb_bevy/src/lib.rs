@@ -3,7 +3,7 @@
 //! This crate knows nothing about any specific Module.
 
 use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-use crate::row_channel::RowChannel;
+use crate::row_channel::{RowChannel, RowUpdated};
 
 pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
 pub use crate::row_channel::RowInserted;
@@ -31,6 +31,7 @@ impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
 fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
     app.insert_resource(RowChannel::<T>::new());
     app.add_message::<RowInserted<T>>();
+    app.add_message::<RowUpdated<T>>();
     app.add_systems(bevy::app::Update, row_channel::drain_row_sink::<T>);
 }
 
@@ -242,7 +243,7 @@ mod tests {
 
         // Push a row insert through the same seam the SDK on_insert callback uses in production.
         let sink = app.world().resource::<RowChannel<Foo>>().sink();
-        sink.insert(Foo { id: 7 });
+        sink.insert(Foo { id: 7 }).unwrap();
 
         // One frame to drain the channel into a message, one for the reader to observe it.
         app.update();
@@ -255,5 +256,41 @@ mod tests {
             "one queued insert should produce exactly one RowInserted message",
         );
         assert_eq!(captured[0], Foo { id: 7 });
+    }
+
+    /// Collects `RowUpdated<Foo>` (old, new) through the public `MessageReader`.
+    #[derive(Resource, Default)]
+    struct CapturedUpdates(Vec<(Foo, Foo)>);
+
+    fn capture_updates(
+        mut reader: MessageReader<RowUpdated<Foo>>,
+        mut captured: ResMut<CapturedUpdates>,
+    ) {
+        for msg in reader.read() {
+            captured.0.push((msg.old.clone(), msg.new.clone()));
+        }
+    }
+
+    #[test]
+    fn update_event_becomes_row_updated_message() {
+        let mut app = App::new();
+        register_table_events::<Foo>(&mut app);
+        app.init_resource::<CapturedUpdates>();
+        app.add_systems(Update, capture_updates);
+
+        // Push a row update (previous + new) through the same seam the SDK on_update callback uses.
+        let sink = app.world().resource::<RowChannel<Foo>>().sink();
+        sink.update(Foo { id: 1 }, Foo { id: 2 }).unwrap();
+
+        app.update();
+        app.update();
+
+        let captured = &app.world().resource::<CapturedUpdates>().0;
+        assert_eq!(
+            captured.len(),
+            1,
+            "one queued update should produce exactly one RowUpdated message",
+        );
+        assert_eq!(captured[0], (Foo { id: 1 }, Foo { id: 2 }));
     }
 }
