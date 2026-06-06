@@ -3,7 +3,7 @@
 //! This crate knows nothing about any specific Module.
 
 use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-use crate::row_channel::{RowChannel, RowUpdated};
+use crate::row_channel::{RowChannel, RowDeleted, RowUpdated};
 
 pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
 pub use crate::row_channel::RowInserted;
@@ -32,6 +32,7 @@ fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
     app.insert_resource(RowChannel::<T>::new());
     app.add_message::<RowInserted<T>>();
     app.add_message::<RowUpdated<T>>();
+    app.add_message::<RowDeleted<T>>();
     app.add_systems(bevy::app::Update, row_channel::drain_row_sink::<T>);
 }
 
@@ -292,5 +293,41 @@ mod tests {
             "one queued update should produce exactly one RowUpdated message",
         );
         assert_eq!(captured[0], (Foo { id: 1 }, Foo { id: 2 }));
+    }
+
+    /// Collects `RowDeleted<Foo>` through the public `MessageReader`.
+    #[derive(Resource, Default)]
+    struct CapturedDeletes(Vec<Foo>);
+
+    fn capture_deletes(
+        mut reader: MessageReader<RowDeleted<Foo>>,
+        mut captured: ResMut<CapturedDeletes>,
+    ) {
+        for msg in reader.read() {
+            captured.0.push(msg.0.clone());
+        }
+    }
+
+    #[test]
+    fn delete_event_becomes_row_deleted_message() {
+        let mut app = App::new();
+        register_table_events::<Foo>(&mut app);
+        app.init_resource::<CapturedDeletes>();
+        app.add_systems(Update, capture_deletes);
+
+        // Push a row delete through the same seam the SDK on_delete callback uses in production.
+        let sink = app.world().resource::<RowChannel<Foo>>().sink();
+        sink.delete(Foo { id: 9 }).unwrap();
+
+        app.update();
+        app.update();
+
+        let captured = &app.world().resource::<CapturedDeletes>().0;
+        assert_eq!(
+            captured.len(),
+            1,
+            "one queued delete should produce exactly one RowDeleted message",
+        );
+        assert_eq!(captured[0], Foo { id: 9 });
     }
 }

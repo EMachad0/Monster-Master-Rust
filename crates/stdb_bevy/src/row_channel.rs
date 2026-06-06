@@ -29,9 +29,23 @@ impl<T> RowUpdated<T> {
     }
 }
 
+#[derive(Message)]
+pub struct RowDeleted<T>(pub T);
+
+impl<T> RowDeleted<T> {
+    pub fn new(row: T) -> Self {
+        Self(row)
+    }
+
+    pub fn row(&self) -> &T {
+        &self.0
+    }
+}
+
 pub(crate) enum RowEvent<T> {
     Insert(T),
     Update { old: T, new: T },
+    Delete(T),
 }
 
 pub(crate) struct RowSink<T> {
@@ -45,6 +59,10 @@ impl<T> RowSink<T> {
 
     pub fn update(&self, old: T, new: T) -> Result<(), crossbeam_channel::SendError<RowEvent<T>>> {
         self.sender.send(RowEvent::Update { old, new })
+    }
+
+    pub fn delete(&self, row: T) -> Result<(), crossbeam_channel::SendError<RowEvent<T>>> {
+        self.sender.send(RowEvent::Delete(row))
     }
 }
 
@@ -84,6 +102,9 @@ pub(crate) fn drain_row_sink<T: 'static + Send + Sync>(
             }
             RowEvent::Update { old, new } => {
                 commands.write_message(RowUpdated::new(old, new));
+            }
+            RowEvent::Delete(row) => {
+                commands.write_message(RowDeleted(row));
             }
         }
     }
