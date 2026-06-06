@@ -8,6 +8,7 @@ use crate::row_channel::{RowChannel, RowDeleted, RowUpdated};
 pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
 pub use crate::row_channel::RowInserted;
 
+mod backoff;
 mod lifecycle;
 mod row_channel;
 
