@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monster Master</title>
+    <!-- --all-features lets wasm-opt accept the wasm features rustc enables by default
+         (bulk-memory, sign-ext, …); without it wasm-opt rejects `memory.copy` on release builds. -->
+    <link data-trunk rel="rust" href="crates/game/Cargo.toml" data-bin="game" data-wasm-opt-params="--all-features" />
+    <link data-trunk rel="copy-dir" href="assets" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #161616;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body></body>
+</html>

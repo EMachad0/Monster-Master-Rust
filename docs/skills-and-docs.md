@@ -19,7 +19,7 @@ Static best-practice documents. Agents read them automatically based on CLAUDE.m
 - **Loaded when:** CLAUDE.md tells the agent to read them, based on task type
 - **Content:** conventions, patterns, rules, anti-patterns — anything an agent should follow
   during implementation
-- **Examples:** `docs/superforms.md`, `docs/project-structure.md`, `docs/testing.md`
+- **Examples:** `docs/spacetimedb.md`, `docs/cicd.md`
 
 ### Skills (`.agents/skills/`)
 
@@ -29,10 +29,10 @@ they run commands, ask questions, generate artifacts.
 - **Location:** `.agents/skills/<skill-name>/SKILL.md`
 - **Loaded when:** user invokes `/skill-name` or the agent matches the description
 - **Content:** instructions for an interactive workflow, not static reference
-- **Examples:** `/grill-me` (interviews the user about a plan), `/to-prd` (generates a PRD),
-  `/playwright-cli` (runs Playwright commands)
+- **Examples:** `/grill-me` and `/grill-with-docs` (interview the user about a plan),
+  `/to-prd` (generates a PRD), `/to-issues` (splits work into issues)
 
-Skills may be version-controlled externally and installed via `bun x` or other tooling. Docs
+Skills may be version-controlled externally and installed via npx skills or other tooling. Docs
 should not duplicate or override skill content.
 
 ## When to use which
@@ -81,11 +81,10 @@ a separate task.
 
 ## Code examples in docs
 
-Code examples in `.md` files are checked by prettier. All code blocks must pass the linter —
-broken examples will fail CI. When writing or updating code examples:
+Keep code examples accurate against the current codebase. When writing or updating them:
 
-- Use valid TypeScript / Svelte syntax
-- Match the project's formatting conventions (run `bun run format` to verify)
+- Use valid Rust / TOML / shell syntax (the stack is Rust + Bevy + SpacetimeDB)
+- Match the project's formatting conventions (`cargo fmt` for Rust)
 - Keep examples minimal but syntactically complete
 
 ## Consistency rules
@@ -94,6 +93,6 @@ broken examples will fail CI. When writing or updating code examples:
   plan). Other docs reference it with a one-line reminder.
 - Docs must not contradict skills. If a skill and a doc disagree, the doc is authoritative for
   conventions and the skill is authoritative for its own workflow.
-- All docs and skills must follow the `package-manager.md` rule: **bun only**. Never use `npm`,
-  `npx`, `pnpm`, `yarn`, or `deno` in examples (except in "wrong" / "don't" contexts or
-  translation tables).
+- Tooling conventions: **`cargo`** for the Rust workspace, **`just`** for task running, **`mise`**
+  for installing tools, **`spacetimedb-cli`** (via mise) for the Module. Never hand-edit the
+  generated `stdb_bindings` — regenerate with `just stdb::generate`.

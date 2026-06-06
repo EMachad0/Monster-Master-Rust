@@ -9,5 +9,5 @@ indent_style = space
 max_line_length = 100
 indent_size = 4
 
-[*.{json,jsonl,json5,yaml,yml}]
+[*.{json,jsonl,json5,yaml,yml,html}]
 indent_size = 2

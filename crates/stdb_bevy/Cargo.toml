@@ -1,0 +1,8 @@
+[package]
+name = "stdb_bevy"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true }

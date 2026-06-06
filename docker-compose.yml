@@ -1,0 +1,21 @@
+# Self-hosted SpacetimeDB. The image tag is pinned to match the CLI, SDK, and module crate
+# (all 2.4.x) so the websocket protocol can't drift. Bring it up with `docker compose up`,
+# then `just stdb::publish && just stdb::generate`.
+name: monster-master
+
+services:
+  spacetimedb:
+    image: clockworklabs/spacetime:v2.4.0
+    command: ["start", "--listen-addr", "0.0.0.0:3000", "--data-dir", "/data"]
+    # The image runs as the non-root `spacetime` user, which cannot write a root-owned named
+    # volume — it would fail with "Permission denied at /data/...". Run as root so the server
+    # owns its data dir. Fine for a local dev database.
+    user: "0:0"
+    ports:
+      - "3000:3000"
+    volumes:
+      - stdb-data:/data
+    restart: unless-stopped
+
+volumes:
+  stdb-data:

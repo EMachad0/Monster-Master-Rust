@@ -1,0 +1,44 @@
+[package]
+name = "game"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "default_app",
+    "2d_api",
+    "2d_bevy_render",
+    "3d_api",
+    "3d_bevy_render",
+    "ui_api",
+    "ui_bevy_render",
+    "scene",
+    "picking",
+    "bevy_gilrs",
+    "bevy_winit",
+    "default_font",
+    "multi_threaded",
+    "webgl2",
+    "x11",
+    "wayland",
+    "sysinfo_plugin",
+] }
+log.workspace = true
+stdb_bevy.workspace = true
+stdb_bindings.workspace = true
+spacetimedb-sdk.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The SDK's browser websocket path (gloo-net). Native uses the default tokio path; only wasm needs
+# this. Feature unification means enabling it here also applies to stdb_bindings' SDK on wasm.
+spacetimedb-sdk = { workspace = true, features = ["browser"] }
+# getrandom needs its JS backend in the browser (see .cargo/config.toml for the matching cfg).
+getrandom = { workspace = true, features = ["wasm_js"] }
+# Drives the SDK's async build()/connection on the browser's event loop.
+wasm-bindgen-futures = { workspace = true }
+
+[features]
+default = []
+# Fast desktop iteration via dynamic linking (never use for wasm or releases).
+dev = ["bevy/dynamic_linking"]

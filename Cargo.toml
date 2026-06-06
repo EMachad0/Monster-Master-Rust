@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+# `stdb_module` compiles to wasm via the SpacetimeDB CLI (`just publish`), not host cargo,
+# so it is kept out of the default build set. Build/publish it with `spacetime`.
+default-members = ["crates/stdb_bevy", "crates/stdb_bindings", "crates/game"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+# Dependency versions are centralized here; member crates use `<dep>.workspace = true`.
+# Bump versions with the CLI, never by hand: `cargo upgrade -p <crate> -i` (cargo-edit) for the
+# latest, or `cargo add <crate>`. Hand-editing version strings invites mistakes.
+[workspace.dependencies]
+# --- external ---
+bevy = { version = "0.18.1", default-features = false }
+spacetimedb = "2.4"
+spacetimedb-sdk = "2.4"
+bevy_asset_loader = "0.26"
+getrandom = "0.4"
+log = "0.4"
+wasm-bindgen-futures = "0.4"
+# --- internal ---
+stdb_bevy = { path = "crates/stdb_bevy" }
+stdb_bindings = { path = "crates/stdb_bindings" }
+
+# Fast iterative dev: optimize dependencies, lightly optimize our own code.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Lean release for web + desktop. Trunk uses `release` for wasm (it can't pick a custom profile).
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+# Max-performance distributable for tagged releases.
+[profile.dist]
+inherits = "release"
+opt-level = 3

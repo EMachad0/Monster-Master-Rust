@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Format, lint, test, and confirm the Module compiles to wasm.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs just, trunk, and spacetimedb-cli from .mise/config.toml.
+      # Rust comes from the runner's rustup, which reads rust-toolchain.toml.
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+      - run: just check::all
+
+  # Confirm the web client compiles to wasm (uses the committed bindings; no server needed).
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+      - run: just dev::build
+
+  # Fail if the committed bindings are stale relative to the Module.
+  bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+      - name: Regenerate bindings and check they are committed
+        run: |
+          just stdb::generate
+          if ! git diff --exit-code -- crates/stdb_bindings; then
+            echo "::error::stdb_bindings is out of date — run 'just stdb::generate' and commit the result."
+            exit 1
+          fi

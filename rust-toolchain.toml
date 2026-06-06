@@ -1,0 +1,6 @@
+# Pinned toolchain for the whole workspace. SpacetimeDB 2.4 requires rustc >= 1.93.
+# rustup auto-installs this toolchain, the listed components, and the wasm target on first use.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

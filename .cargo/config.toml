@@ -1,0 +1,5 @@
+# getrandom 0.3 needs its JS backend in the browser. Bevy and the SpacetimeDB SDK both
+# pull getrandom, so we set the backend workspace-wide for the wasm target. Without this,
+# randomness panics at runtime in the browser.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

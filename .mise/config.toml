@@ -4,11 +4,18 @@ min_version = "2025.1.0"
 experimental = true
 
 [tools]
-bun = "latest"
-github-cli = "latest"
+# Rust is pinned via rust-toolchain.toml (rustup), not mise, so bare `cargo`, `spacetime build`,
+# and CI all agree on one toolchain and the wasm target is auto-installed.
 just = "latest"
-node = "24"
-rust = "latest"
+github-cli = "latest"
+# trunk-rs (wasm bundler) — NOT mise's default `trunk` (that resolves to the Trunk.io linter)
+"github:trunk-rs/trunk" = "latest"
+# SpacetimeDB CLI — pinned to match the server image, SDK, and module crate (all 2.4.x).
+# The release tarball ships two binaries (`spacetimedb-cli` = the `spacetime` command, and
+# `spacetimedb-standalone`); the github backend keeps both side by side, which the single-binary
+# ubi backend did not — `spacetime start` needs the standalone sibling. The command is therefore
+# exposed under its real name, `spacetimedb-cli`.
+"github:clockworklabs/SpacetimeDB" = { version = "2.4.0", exe = "spacetimedb-cli" }
 
 [env]
 
