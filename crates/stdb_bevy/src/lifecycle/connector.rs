@@ -32,52 +32,31 @@ pub(crate) fn connect_on_stdbconnect<Cn: Connector>(
 pub(crate) fn disconnect_on_stdbdisconnect<Cn: Connector>(
     _: On<StdbDisconnect>,
     connector: Res<Cn>,
-    connicion: Res<StdbConnection<Cn::Conn>>,
+    connection: Option<Res<StdbConnection<Cn::Conn>>>,
     lifecycle_channel: Res<LifecycleChannel<Cn::Conn>>,
 ) {
-    let sink = lifecycle_channel.sink();
-    connector.disconnect(connicion.deref(), sink);
+    if let Some(connection) = connection {
+        let sink = lifecycle_channel.sink();
+        connector.disconnect(connection.deref(), sink);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use bevy::{app::App, ecs::resource::Resource};
+    use bevy::app::App;
 
     use crate::{
-        StdbConnection, StdbStatus, install_fulfillment, install_lifecycle,
+        StdbConnection, StdbPlugin, StdbStatus,
         lifecycle::stdb_connection::{StdbConnect, StdbDisconnect},
+        test_support::{FakeConn, FakeConnector},
     };
-
-    use super::*;
-
-    /// Stand-in for a real `DbConnection`. The lifecycle engine only requires `Send + Sync + 'static`.
-    #[derive(Clone, Default)]
-    struct FakeConn;
-
-    /// A connector whose I/O is synchronous and in-memory, so fulfillment can be tested with no socket.
-    #[derive(Resource)]
-    struct FakeConnector;
-
-    impl Connector for FakeConnector {
-        type Conn = FakeConn;
-
-        fn connect(&self, sink: LifecycleSink<FakeConn>) {
-            // Synchronous success: hand the connection straight back through the sink.
-            sink.connected(FakeConn).unwrap();
-        }
-
-        fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
-
-        fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
-            sink.disconnected().unwrap();
-        }
-    }
 
     #[test]
     fn stdb_connect_establishes_the_connection() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
-        install_fulfillment(&mut app, FakeConnector);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -94,8 +73,9 @@ mod tests {
     #[test]
     fn stdb_disconnect_closes_the_connection() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
-        install_fulfillment(&mut app, FakeConnector);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         // Connect first.
         app.world_mut().trigger(StdbConnect);

@@ -3,7 +3,7 @@
 //! This crate knows nothing about any specific Module.
 
 use crate::lifecycle::connector::{connect_on_stdbconnect, disconnect_on_stdbdisconnect};
-use crate::lifecycle::lifecycle_channel::LifecycleChannel;
+use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
 use crate::lifecycle::stdb_connection::{
     StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
 };
@@ -26,27 +26,18 @@ pub struct StdbPlugin<Cn: Connector> {
 
 impl<Cn: Clone + Connector> bevy::app::Plugin for StdbPlugin<Cn> {
     fn build(&self, app: &mut bevy::app::App) {
-        install_lifecycle::<Cn>(app);
-        install_fulfillment(app, self.connector.clone());
+        app.insert_resource(StdbIntent::Disconnected);
+        app.insert_resource(StdbStatus::Disconnected);
+        app.insert_resource(LifecycleChannel::<Cn::Conn>::new());
+        app.insert_resource(self.connector.clone());
+
+        app.add_observer(update_intent_on_stdbconnect);
+        app.add_observer(update_intent_on_stdbdisconnect);
+        app.add_observer(connect_on_stdbconnect::<Cn>);
+        app.add_observer(disconnect_on_stdbdisconnect::<Cn>);
+
+        app.add_systems(bevy::app::Update, drain_lifecycle_sink::<Cn::Conn>);
     }
-}
-
-pub(crate) fn install_lifecycle<C: StdbConn>(app: &mut bevy::app::App) {
-    app.insert_resource(StdbIntent::Disconnected);
-    app.insert_resource(StdbStatus::Disconnected);
-    app.insert_resource(LifecycleChannel::<C>::new());
-    app.add_observer(update_intent_on_stdbconnect);
-    app.add_observer(update_intent_on_stdbdisconnect);
-    app.add_systems(
-        bevy::app::Update,
-        lifecycle::lifecycle_channel::drain_lifecycle_sink::<C>,
-    );
-}
-
-pub(crate) fn install_fulfillment<Cn: Connector>(app: &mut bevy::app::App, connector: Cn) {
-    app.insert_resource(connector);
-    app.add_observer(connect_on_stdbconnect::<Cn>);
-    app.add_observer(disconnect_on_stdbdisconnect::<Cn>);
 }
 
 fn install_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
@@ -55,6 +46,37 @@ fn install_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
     app.add_message::<RowUpdated<T>>();
     app.add_message::<RowDeleted<T>>();
     app.add_systems(bevy::app::Update, row_channel::drain_row_sink::<T>);
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use bevy::ecs::resource::Resource;
+
+    use crate::{Connector, StdbConnection, lifecycle::lifecycle_channel::LifecycleSink};
+
+    /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeConn;
+
+    /// A connector whose I/O is synchronous and in-memory, so the connection layer can be tested
+    /// through `StdbPlugin` with no socket.
+    #[derive(Resource, Clone, Default)]
+    pub(crate) struct FakeConnector;
+
+    impl Connector for FakeConnector {
+        type Conn = FakeConn;
+
+        fn connect(&self, sink: LifecycleSink<FakeConn>) {
+            // Synchronous success: hand the connection straight back through the sink.
+            sink.connected(FakeConn).unwrap();
+        }
+
+        fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
+
+        fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
+            sink.disconnected().unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -68,9 +90,7 @@ mod tests {
 
     use bevy::prelude::*;
 
-    /// Stand-in for a real `DbConnection`. The lifecycle engine only requires `Send + Sync + 'static`.
-    #[derive(Clone, Default)]
-    struct FakeConn;
+    use crate::test_support::{FakeConn, FakeConnector};
 
     /// Set by an observer so the test can assert `StdbConnected` actually fired.
     #[derive(Resource, Default)]
@@ -87,7 +107,9 @@ mod tests {
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         app.init_resource::<ObserverFired>();
         app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
@@ -125,7 +147,9 @@ mod tests {
     #[test]
     fn disconnected_signal_triggers_observer_status_and_removes_resource() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         app.init_resource::<DisconnectFired>();
         app.add_observer(
@@ -166,7 +190,9 @@ mod tests {
     #[test]
     fn connect_error_signal_triggers_observer_with_message_and_status() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         app.init_resource::<ConnectErrorCaptured>();
         app.add_observer(
@@ -204,7 +230,9 @@ mod tests {
     #[test]
     fn stdb_connected_run_condition_gates_systems() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
         app.init_resource::<RunCount>();
         app.add_systems(Update, count_up.run_if(stdb_connected::<FakeConn>));
 
@@ -381,7 +409,9 @@ mod tests {
     #[test]
     fn engine_starts_disconnected_with_disconnected_intent() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         assert_eq!(
             *app.world().resource::<StdbStatus>(),
@@ -396,7 +426,9 @@ mod tests {
     #[test]
     fn stdb_connect_request_sets_intent_connected() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -407,7 +439,9 @@ mod tests {
     #[test]
     fn stdb_disconnect_request_sets_intent_disconnected() {
         let mut app = App::new();
-        install_lifecycle::<FakeConn>(&mut app);
+        app.add_plugins(StdbPlugin {
+            connector: FakeConnector,
+        });
 
         // Reach Connected intent first, so the flip back is observable.
         app.world_mut().trigger(StdbConnect);
