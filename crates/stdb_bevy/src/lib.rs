@@ -8,7 +8,7 @@ use crate::connection::stdb_intent::{
     StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
 };
 use crate::connection_driver::stdb_connection_driver::{
-    connect_on_stdbconnect, disconnect_on_stdbdisconnect,
+    connect_on_stdbconnect, disconnect_on_stdbdisconnect, tick_stdbconnectiondriver,
 };
 use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
 use crate::lifecycle::reconnect::{
@@ -18,7 +18,7 @@ use crate::row::row_channel::{RowChannel, drain_row_sink};
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
-pub use crate::connection::stdb_status::{StdbStatus, stdb_connected};
+pub use crate::connection::stdb_status::{StdbStatus, stdb_connected as is_stdb_connected};
 pub use crate::connection_driver::stdb_connection_driver::StdbConnectionDriver;
 pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
 pub use crate::lifecycle::lifecycle_events::{
@@ -59,6 +59,7 @@ impl<Cd: Clone + StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
             bevy::app::Update,
             (
                 drain_lifecycle_sink::<Cd::Conn>,
+                tick_stdbconnectiondriver::<Cd>.run_if(is_stdb_connected),
                 tick_reconnectstate::<Cd>.run_if(should_tick_reconnectstate),
             ),
         );
@@ -258,7 +259,7 @@ mod tests {
     fn stdb_connected_run_condition_gates_systems() {
         let mut app = test_app(FakeConnectionDriver);
         app.init_resource::<RunCount>();
-        app.add_systems(Update, count_up.run_if(stdb_connected));
+        app.add_systems(Update, count_up.run_if(is_stdb_connected));
 
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
 
