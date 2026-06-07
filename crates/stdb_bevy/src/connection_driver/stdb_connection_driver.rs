@@ -4,13 +4,11 @@ use bevy::ecs::{observer::On, resource::Resource, system::Res};
 
 use crate::{
     StdbConn, StdbConnection,
-    lifecycle::{
-        lifecycle_channel::{LifecycleChannel, LifecycleSink},
-        stdb_connection::{StdbConnect, StdbDisconnect},
-    },
+    connection::connection_events::{StdbConnect, StdbDisconnect},
+    lifecycle::lifecycle_channel::{LifecycleChannel, LifecycleSink},
 };
 
-pub trait Connector: Resource {
+pub trait StdbConnectionDriver: Resource {
     type Conn: StdbConn;
 
     fn connect(&self, sink: LifecycleSink<Self::Conn>);
@@ -20,38 +18,39 @@ pub trait Connector: Resource {
     fn tick(&self, conn: &StdbConnection<Self::Conn>);
 }
 
-pub(crate) fn connect_on_stdbconnect<Cn: Connector>(
+pub(crate) fn connect_on_stdbconnect<Cd: StdbConnectionDriver>(
     _: On<StdbConnect>,
-    connector: Res<Cn>,
-    lifecycle_channel: Res<LifecycleChannel<Cn::Conn>>,
+    driver: Res<Cd>,
+    lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
 ) {
     let sink = lifecycle_channel.sink();
-    connector.connect(sink);
+    driver.connect(sink);
 }
 
-pub(crate) fn disconnect_on_stdbdisconnect<Cn: Connector>(
+pub(crate) fn disconnect_on_stdbdisconnect<Cd: StdbConnectionDriver>(
     _: On<StdbDisconnect>,
-    connector: Res<Cn>,
-    connection: Option<Res<StdbConnection<Cn::Conn>>>,
-    lifecycle_channel: Res<LifecycleChannel<Cn::Conn>>,
+    driver: Res<Cd>,
+    connection: Option<Res<StdbConnection<Cd::Conn>>>,
+    lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
 ) {
     if let Some(connection) = connection {
         let sink = lifecycle_channel.sink();
-        connector.disconnect(connection.deref(), sink);
+        driver.disconnect(connection.deref(), sink);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        StdbConnection, StdbStatus,
-        lifecycle::stdb_connection::{StdbConnect, StdbDisconnect},
-        test_support::{FakeConn, FakeConnector, test_app},
+        connection::stdb_status::StdbStatus,
+        test_support::{FakeConn, FakeConnectionDriver, test_app},
     };
+
+    use super::*;
 
     #[test]
     fn stdb_connect_establishes_the_connection() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -67,7 +66,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_closes_the_connection() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         // Connect first.
         app.world_mut().trigger(StdbConnect);

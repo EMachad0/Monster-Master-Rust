@@ -1,46 +1,9 @@
 use bevy::ecs::{
-    message::Message,
     resource::Resource,
     system::{Commands, Res},
 };
 
-#[derive(Message)]
-pub struct RowInserted<T>(pub T);
-
-impl<T> RowInserted<T> {
-    pub fn new(row: T) -> Self {
-        Self(row)
-    }
-
-    pub fn row(&self) -> &T {
-        &self.0
-    }
-}
-
-#[derive(Message)]
-pub struct RowUpdated<T> {
-    pub old: T,
-    pub new: T,
-}
-
-impl<T> RowUpdated<T> {
-    pub fn new(old: T, new: T) -> Self {
-        Self { old, new }
-    }
-}
-
-#[derive(Message)]
-pub struct RowDeleted<T>(pub T);
-
-impl<T> RowDeleted<T> {
-    pub fn new(row: T) -> Self {
-        Self(row)
-    }
-
-    pub fn row(&self) -> &T {
-        &self.0
-    }
-}
+use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
 
 pub(crate) enum RowEvent<T> {
     Insert(T),

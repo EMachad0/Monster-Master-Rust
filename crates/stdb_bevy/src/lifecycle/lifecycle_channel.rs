@@ -3,9 +3,14 @@ use bevy::ecs::{
     system::{Commands, Res},
 };
 
-use crate::lifecycle::stdb_connection::{
-    ConnectionError, StdbConn, StdbConnected, StdbConnection, StdbConnectionError,
-    StdbDisconnected, StdbStatus,
+use crate::{
+    connection::{
+        stdb_connection::{StdbConn, StdbConnection},
+        stdb_status::StdbStatus,
+    },
+    lifecycle::lifecycle_events::{
+        ConnectionError, StdbConnected, StdbConnectionError, StdbDisconnected,
+    },
 };
 
 pub enum LifecycleEvent<C: StdbConn> {

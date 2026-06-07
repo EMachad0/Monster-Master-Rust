@@ -7,12 +7,10 @@ use bevy::ecs::{
 };
 
 use crate::{
-    Connector, StdbStatus,
-    backoff::{Backoff, Jitter},
-    lifecycle::{
-        lifecycle_channel::LifecycleChannel,
-        stdb_connection::{StdbDisconnected, StdbIntent},
-    },
+    StdbConnectionDriver, StdbStatus,
+    connection::stdb_intent::StdbIntent,
+    lifecycle::{lifecycle_channel::LifecycleChannel, lifecycle_events::StdbDisconnected},
+    utils::backoff::{Backoff, Jitter},
 };
 
 #[derive(Debug, Clone, Copy, Resource)]
@@ -106,18 +104,19 @@ pub fn reset_reconnectstate_on_stdbdisconnected(
     }
 }
 
-pub fn tick_reconnectstate<Cn: Connector>(
+pub fn tick_reconnectstate<Cd: StdbConnectionDriver>(
     mut state: ResMut<ReconnectState>,
     policy: Res<ReconnectPolicy>,
     time: Res<bevy::time::Time>,
-    connector: Res<Cn>,
-    lifecycle_channel: Res<LifecycleChannel<Cn::Conn>>,
+    connection_driver: Res<Cd>,
+    lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
 ) {
-    match state.tick(policy.deref(), time.delta(), 0.0) {
+    let sample = time.elapsed().subsec_nanos() as f64 / 1_000_000_000.0;
+    match state.tick(policy.deref(), time.delta(), sample) {
         ReconnectAction::Wait => {}
         ReconnectAction::Reconnect => {
             let sink = lifecycle_channel.sink();
-            connector.connect(sink);
+            connection_driver.connect(sink);
         }
         ReconnectAction::GiveUp => {}
     }
@@ -135,11 +134,9 @@ mod tests {
 
     use crate::{
         StdbStatus,
-        lifecycle::{
-            lifecycle_channel::LifecycleChannel,
-            stdb_connection::{StdbConnect, StdbDisconnect},
-        },
-        test_support::{FakeConn, FakeConnector, test_app},
+        connection::connection_events::{StdbConnect, StdbDisconnect},
+        lifecycle::lifecycle_channel::LifecycleChannel,
+        test_support::{FakeConn, FakeConnectionDriver, test_app},
     };
 
     #[test]
@@ -274,7 +271,7 @@ mod tests {
     fn reconnect_system_reconnects_after_a_drop_once_backoff_elapses() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_secs(1)),
             jitter: Jitter(0.0),
@@ -323,7 +320,7 @@ mod tests {
     fn reconnect_system_does_not_reconnect_after_explicit_disconnect() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_millis(1)),
             jitter: Jitter(0.0),

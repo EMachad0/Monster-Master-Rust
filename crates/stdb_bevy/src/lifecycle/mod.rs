@@ -1,3 +1,3 @@
-pub mod connector;
 pub mod lifecycle_channel;
-pub mod stdb_connection;
+pub mod lifecycle_events;
+pub mod reconnect;

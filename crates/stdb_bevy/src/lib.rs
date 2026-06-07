@@ -4,53 +4,62 @@
 
 use bevy::ecs::schedule::IntoScheduleConfigs;
 
-use crate::lifecycle::connector::{connect_on_stdbconnect, disconnect_on_stdbdisconnect};
-use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
-use crate::lifecycle::stdb_connection::{
+use crate::connection::stdb_intent::{
     StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
 };
-use crate::reconnect::{
+use crate::connection_driver::stdb_connection_driver::{
+    connect_on_stdbconnect, disconnect_on_stdbdisconnect,
+};
+use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
+use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
-use crate::row_channel::RowChannel;
+use crate::row::row_channel::{RowChannel, drain_row_sink};
 
-pub use crate::backoff::{Backoff, Jitter};
-pub use crate::lifecycle::connector::Connector;
-pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
-pub use crate::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
-pub use crate::row_channel::{RowDeleted, RowInserted, RowUpdated};
+pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
+pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
+pub use crate::connection::stdb_status::{StdbStatus, stdb_connected};
+pub use crate::connection_driver::stdb_connection_driver::StdbConnectionDriver;
+pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
+pub use crate::lifecycle::lifecycle_events::{
+    StdbConnected, StdbConnectionError, StdbDisconnected,
+};
+pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
+pub use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
+pub use crate::utils::backoff::{Backoff, Jitter};
 
-mod backoff;
+mod connection;
+mod connection_driver;
 mod lifecycle;
-mod reconnect;
-mod row_channel;
+mod row;
+mod utils;
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
 #[derive(Clone, Copy, Default)]
-pub struct StdbPlugin<Cn: Connector> {
-    connector: Cn,
+pub struct StdbPlugin<Cd: StdbConnectionDriver> {
+    driver: Cd,
 }
 
-impl<Cn: Clone + Connector> bevy::app::Plugin for StdbPlugin<Cn> {
+impl<Cd: Clone + StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
     fn build(&self, app: &mut bevy::app::App) {
         app.insert_resource(StdbIntent::Disconnected);
         app.insert_resource(StdbStatus::Disconnected);
-        app.insert_resource(LifecycleChannel::<Cn::Conn>::new());
-        app.insert_resource(self.connector.clone());
+        app.insert_resource(LifecycleChannel::<Cd::Conn>::new());
+        app.insert_resource(self.driver.clone());
         app.init_resource::<ReconnectPolicy>();
         app.init_resource::<ReconnectState>();
 
         app.add_observer(update_intent_on_stdbconnect);
         app.add_observer(update_intent_on_stdbdisconnect);
-        app.add_observer(connect_on_stdbconnect::<Cn>);
-        app.add_observer(disconnect_on_stdbdisconnect::<Cn>);
+        app.add_observer(connect_on_stdbconnect::<Cd>);
+        app.add_observer(disconnect_on_stdbdisconnect::<Cd>);
         app.add_observer(reset_reconnectstate_on_stdbdisconnected);
 
         app.add_systems(
             bevy::app::Update,
             (
-                drain_lifecycle_sink::<Cn::Conn>,
-                tick_reconnectstate::<Cn>.run_if(should_tick_reconnectstate),
+                drain_lifecycle_sink::<Cd::Conn>,
+                tick_reconnectstate::<Cd>.run_if(should_tick_reconnectstate),
             ),
         );
     }
@@ -61,25 +70,27 @@ fn install_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
     app.add_message::<RowInserted<T>>();
     app.add_message::<RowUpdated<T>>();
     app.add_message::<RowDeleted<T>>();
-    app.add_systems(bevy::app::Update, row_channel::drain_row_sink::<T>);
+    app.add_systems(bevy::app::Update, drain_row_sink::<T>);
 }
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use bevy::ecs::resource::Resource;
+    use super::*;
 
-    use crate::{Connector, StdbConnection, lifecycle::lifecycle_channel::LifecycleSink};
+    use bevy::ecs::resource::Resource;
 
     /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
     #[derive(Clone, Default)]
     pub(crate) struct FakeConn;
 
-    /// A connector whose I/O is synchronous and in-memory, so the connection layer can be tested
+    impl StdbConn for FakeConn {}
+
+    /// A connection driver whose I/O is synchronous and in-memory, so the connection layer can be tested
     /// through `StdbPlugin` with no socket.
     #[derive(Resource, Clone, Default)]
-    pub(crate) struct FakeConnector;
+    pub(crate) struct FakeConnectionDriver;
 
-    impl Connector for FakeConnector {
+    impl StdbConnectionDriver for FakeConnectionDriver {
         type Conn = FakeConn;
 
         fn connect(&self, sink: LifecycleSink<FakeConn>) {
@@ -94,11 +105,11 @@ pub(crate) mod test_support {
         }
     }
 
-    /// Build a test `App` with the bridge installed for `connector`, plus a `Time` resource — the
+    /// Build a test `App` with the bridge installed for `StdbConnectionDriver`, plus a `Time` resource — the
     /// reconnect system needs `Time`, which production supplies via the Game's `TimePlugin`.
-    pub(crate) fn test_app<Cn: Connector + Clone>(connector: Cn) -> bevy::app::App {
+    pub(crate) fn test_app<Cd: StdbConnectionDriver + Clone>(driver: Cd) -> bevy::app::App {
         let mut app = bevy::app::App::new();
-        app.add_plugins(crate::StdbPlugin { connector });
+        app.add_plugins(crate::StdbPlugin { driver });
         app.insert_resource(bevy::time::Time::<()>::default());
         app
     }
@@ -106,16 +117,16 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use crate::lifecycle::stdb_connection::{
-        ConnectionError, StdbConnect, StdbConnected, StdbConnection, StdbConnectionError,
-        StdbDisconnect, StdbDisconnected, StdbIntent, stdb_connected,
-    };
-
     use super::*;
 
     use bevy::prelude::*;
 
-    use crate::test_support::{FakeConn, FakeConnector, test_app};
+    use crate::{
+        lifecycle::lifecycle_events::{
+            ConnectionError, StdbConnected, StdbConnectionError, StdbDisconnected,
+        },
+        test_support::{FakeConn, FakeConnectionDriver, test_app},
+    };
 
     /// Set by an observer so the test can assert `StdbConnected` actually fired.
     #[derive(Resource, Default)]
@@ -131,7 +142,7 @@ mod tests {
 
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         app.init_resource::<ObserverFired>();
         app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
@@ -168,7 +179,7 @@ mod tests {
 
     #[test]
     fn disconnected_signal_triggers_observer_status_and_removes_resource() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         app.init_resource::<DisconnectFired>();
         app.add_observer(
@@ -208,7 +219,7 @@ mod tests {
 
     #[test]
     fn connect_error_signal_triggers_observer_with_message_and_status() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         app.init_resource::<ConnectErrorCaptured>();
         app.add_observer(
@@ -245,9 +256,9 @@ mod tests {
 
     #[test]
     fn stdb_connected_run_condition_gates_systems() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
         app.init_resource::<RunCount>();
-        app.add_systems(Update, count_up.run_if(stdb_connected::<FakeConn>));
+        app.add_systems(Update, count_up.run_if(stdb_connected));
 
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
 
@@ -421,7 +432,7 @@ mod tests {
 
     #[test]
     fn engine_starts_disconnected_with_disconnected_intent() {
-        let mut app = test_app(FakeConnector);
+        let app = test_app(FakeConnectionDriver);
 
         assert_eq!(
             *app.world().resource::<StdbStatus>(),
@@ -435,7 +446,7 @@ mod tests {
 
     #[test]
     fn stdb_connect_request_sets_intent_connected() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -445,7 +456,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_request_sets_intent_disconnected() {
-        let mut app = test_app(FakeConnector);
+        let mut app = test_app(FakeConnectionDriver);
 
         // Reach Connected intent first, so the flip back is observable.
         app.world_mut().trigger(StdbConnect);
