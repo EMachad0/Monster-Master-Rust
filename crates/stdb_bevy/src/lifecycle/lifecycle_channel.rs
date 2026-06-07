@@ -8,14 +8,14 @@ use crate::lifecycle::stdb_connection::{
     StdbDisconnected, StdbStatus,
 };
 
-pub(crate) enum LifecycleEvent<C: StdbConn> {
+pub enum LifecycleEvent<C: StdbConn> {
     Connected(C),
     Disconnected,
     ConnectionError(ConnectionError),
 }
 
-pub(crate) struct LifecycleSink<C: StdbConn> {
-    pub sender: crossbeam_channel::Sender<LifecycleEvent<C>>,
+pub struct LifecycleSink<C: StdbConn> {
+    sender: crossbeam_channel::Sender<LifecycleEvent<C>>,
 }
 
 impl<C: StdbConn> LifecycleSink<C> {

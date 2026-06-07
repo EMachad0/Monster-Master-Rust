@@ -2,39 +2,54 @@
 //!
 //! This crate knows nothing about any specific Module.
 
+use crate::lifecycle::connector::{connect_on_stdbconnect, disconnect_on_stdbdisconnect};
 use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-use crate::row_channel::{RowChannel, RowDeleted, RowUpdated};
+use crate::lifecycle::stdb_connection::{
+    StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
+};
+use crate::row_channel::RowChannel;
 
+pub use crate::lifecycle::connector::Connector;
 pub use crate::lifecycle::stdb_connection::{StdbConn, StdbConnected, StdbConnection, StdbStatus};
-pub use crate::row_channel::RowInserted;
+pub use crate::row_channel::{RowDeleted, RowInserted, RowUpdated};
 
 mod backoff;
 mod lifecycle;
-mod reconect;
+mod reconnect;
 mod row_channel;
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
 #[derive(Clone, Copy, Default)]
-pub struct StdbPlugin<C: StdbConn> {
-    mark: std::marker::PhantomData<C>,
+pub struct StdbPlugin<Cn: Connector> {
+    connector: Cn,
 }
 
-impl<C: StdbConn> bevy::app::Plugin for StdbPlugin<C> {
+impl<Cn: Clone + Connector> bevy::app::Plugin for StdbPlugin<Cn> {
     fn build(&self, app: &mut bevy::app::App) {
-        install_lifecycle::<C>(app);
+        install_lifecycle::<Cn>(app);
+        install_fulfillment(app, self.connector.clone());
     }
 }
 
 pub(crate) fn install_lifecycle<C: StdbConn>(app: &mut bevy::app::App) {
-    app.insert_resource(StdbStatus::Connecting);
+    app.insert_resource(StdbIntent::Disconnected);
+    app.insert_resource(StdbStatus::Disconnected);
     app.insert_resource(LifecycleChannel::<C>::new());
+    app.add_observer(update_intent_on_stdbconnect);
+    app.add_observer(update_intent_on_stdbdisconnect);
     app.add_systems(
         bevy::app::Update,
         lifecycle::lifecycle_channel::drain_lifecycle_sink::<C>,
     );
 }
 
-fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
+pub(crate) fn install_fulfillment<Cn: Connector>(app: &mut bevy::app::App, connector: Cn) {
+    app.insert_resource(connector);
+    app.add_observer(connect_on_stdbconnect::<Cn>);
+    app.add_observer(disconnect_on_stdbdisconnect::<Cn>);
+}
+
+fn install_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
     app.insert_resource(RowChannel::<T>::new());
     app.add_message::<RowInserted<T>>();
     app.add_message::<RowUpdated<T>>();
@@ -45,8 +60,8 @@ fn register_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
 #[cfg(test)]
 mod tests {
     use crate::lifecycle::stdb_connection::{
-        ConnectionError, StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected,
-        stdb_connected,
+        ConnectionError, StdbConnect, StdbConnected, StdbConnection, StdbConnectionError,
+        StdbDisconnect, StdbDisconnected, StdbIntent, stdb_connected,
     };
 
     use super::*;
@@ -77,10 +92,10 @@ mod tests {
         app.init_resource::<ObserverFired>();
         app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
 
-        // Before any signal: connecting, no connection resource yet.
+        // Before any signal: disconnected, no connection resource yet.
         assert_eq!(
             *app.world().resource::<StdbStatus>(),
-            StdbStatus::Connecting
+            StdbStatus::Disconnected
         );
         assert!(
             app.world()
@@ -246,7 +261,7 @@ mod tests {
     #[test]
     fn insert_event_becomes_row_inserted_message() {
         let mut app = App::new();
-        register_table_events::<Foo>(&mut app);
+        install_table_events::<Foo>(&mut app);
         app.init_resource::<CapturedInserts>();
         app.add_systems(Update, capture_inserts);
 
@@ -283,7 +298,7 @@ mod tests {
     #[test]
     fn update_event_becomes_row_updated_message() {
         let mut app = App::new();
-        register_table_events::<Foo>(&mut app);
+        install_table_events::<Foo>(&mut app);
         app.init_resource::<CapturedUpdates>();
         app.add_systems(Update, capture_updates);
 
@@ -319,7 +334,7 @@ mod tests {
     #[test]
     fn delete_event_becomes_row_deleted_message() {
         let mut app = App::new();
-        register_table_events::<Foo>(&mut app);
+        install_table_events::<Foo>(&mut app);
         app.init_resource::<CapturedDeletes>();
         app.add_systems(Update, capture_deletes);
 
@@ -342,7 +357,7 @@ mod tests {
     #[test]
     fn bulk_inserts_preserve_count_and_order() {
         let mut app = App::new();
-        register_table_events::<Foo>(&mut app);
+        install_table_events::<Foo>(&mut app);
         app.init_resource::<CapturedInserts>();
         app.add_systems(Update, capture_inserts);
 
@@ -360,6 +375,51 @@ mod tests {
             *captured,
             vec![Foo { id: 1 }, Foo { id: 2 }, Foo { id: 3 }],
             "all queued inserts should surface as messages, in send order",
+        );
+    }
+
+    #[test]
+    fn engine_starts_disconnected_with_disconnected_intent() {
+        let mut app = App::new();
+        install_lifecycle::<FakeConn>(&mut app);
+
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+        assert_eq!(
+            *app.world().resource::<StdbIntent>(),
+            StdbIntent::Disconnected
+        );
+    }
+
+    #[test]
+    fn stdb_connect_request_sets_intent_connected() {
+        let mut app = App::new();
+        install_lifecycle::<FakeConn>(&mut app);
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+
+        assert_eq!(*app.world().resource::<StdbIntent>(), StdbIntent::Connected);
+    }
+
+    #[test]
+    fn stdb_disconnect_request_sets_intent_disconnected() {
+        let mut app = App::new();
+        install_lifecycle::<FakeConn>(&mut app);
+
+        // Reach Connected intent first, so the flip back is observable.
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(*app.world().resource::<StdbIntent>(), StdbIntent::Connected);
+
+        app.world_mut().trigger(StdbDisconnect);
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<StdbIntent>(),
+            StdbIntent::Disconnected
         );
     }
 }

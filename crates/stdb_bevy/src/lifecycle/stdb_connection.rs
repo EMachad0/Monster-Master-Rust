@@ -1,4 +1,9 @@
-use bevy::ecs::{event::Event, resource::Resource, system::Res};
+use bevy::ecs::{
+    event::Event,
+    observer::On,
+    resource::Resource,
+    system::{Res, ResMut},
+};
 
 pub trait StdbConn: 'static + Send + Sync {}
 
@@ -31,6 +36,29 @@ impl StdbConnectionError {
 pub enum ConnectionError {
     #[error("connection refused")]
     ConnectionRefused,
+}
+
+#[derive(Debug, Copy, Clone, Event)]
+pub struct StdbConnect;
+
+#[derive(Debug, Copy, Clone, Event)]
+pub struct StdbDisconnect;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
+pub(crate) enum StdbIntent {
+    Connected,
+    Disconnected,
+}
+
+pub(crate) fn update_intent_on_stdbconnect(_: On<StdbConnect>, mut intent: ResMut<StdbIntent>) {
+    *intent = StdbIntent::Connected;
+}
+
+pub(crate) fn update_intent_on_stdbdisconnect(
+    _: On<StdbDisconnect>,
+    mut intent: ResMut<StdbIntent>,
+) {
+    *intent = StdbIntent::Disconnected;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Resource)]

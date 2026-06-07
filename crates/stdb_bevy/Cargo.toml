@@ -8,3 +8,4 @@ publish = false
 bevy = { workspace = true }
 crossbeam-channel = { workspace = true }
 thiserror = { workspace = true }
+spacetimedb-sdk.workspace = true
