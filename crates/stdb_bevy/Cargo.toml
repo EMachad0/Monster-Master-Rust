@@ -5,7 +5,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-bevy = { workspace = true }
-crossbeam-channel = { workspace = true }
-thiserror = { workspace = true }
+bevy.workspace = true
+crossbeam-channel.workspace = true
+thiserror.workspace = true
 spacetimedb-sdk.workspace = true
+rand.workspace = true

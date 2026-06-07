@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy)]
 pub enum Backoff {
     Fixed(Duration),
     Exponential {
@@ -23,6 +24,7 @@ impl Backoff {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Jitter(pub f64);
 
 impl Jitter {

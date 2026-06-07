@@ -1,13 +1,46 @@
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
-use crate::backoff::{Backoff, Jitter};
+use bevy::ecs::{
+    observer::On,
+    resource::Resource,
+    system::{Commands, Res, ResMut},
+};
 
+use crate::{
+    Connector, StdbStatus,
+    backoff::{Backoff, Jitter},
+    lifecycle::{
+        lifecycle_channel::LifecycleChannel,
+        stdb_connection::{StdbDisconnected, StdbIntent},
+    },
+};
+
+#[derive(Debug, Clone, Copy, Resource)]
 pub struct ReconnectPolicy {
     backoff: Backoff,
     jitter: Jitter,
     max_retries: Option<u32>,
 }
 
+impl Default for ReconnectPolicy {
+    fn default() -> Self {
+        let backoff = Backoff::Exponential {
+            base: Duration::from_millis(500),
+            factor: 2.0,
+            max: Duration::from_secs(30),
+        };
+        let jitter = Jitter(0.2);
+        let max_retries = None;
+
+        Self {
+            backoff,
+            jitter,
+            max_retries,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Resource)]
 pub struct ReconnectState {
     retry_count: u32,
     elapsed: Duration,
@@ -63,9 +96,51 @@ pub enum ReconnectAction {
     GiveUp,
 }
 
+pub fn reset_reconnectstate_on_stdbdisconnected(
+    _: On<StdbDisconnected>,
+    mut commands: Commands,
+    intent: Res<StdbIntent>,
+) {
+    if *intent == StdbIntent::Connected {
+        commands.insert_resource(ReconnectState::default());
+    }
+}
+
+pub fn tick_reconnectstate<Cn: Connector>(
+    mut state: ResMut<ReconnectState>,
+    policy: Res<ReconnectPolicy>,
+    time: Res<bevy::time::Time>,
+    connector: Res<Cn>,
+    lifecycle_channel: Res<LifecycleChannel<Cn::Conn>>,
+) {
+    match state.tick(policy.deref(), time.delta(), 0.0) {
+        ReconnectAction::Wait => {}
+        ReconnectAction::Reconnect => {
+            let sink = lifecycle_channel.sink();
+            connector.connect(sink);
+        }
+        ReconnectAction::GiveUp => {}
+    }
+}
+
+pub fn should_tick_reconnectstate(intent: Res<StdbIntent>, status: Res<StdbStatus>) -> bool {
+    *status == StdbStatus::Disconnected && *intent == StdbIntent::Connected
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bevy::time::Time;
+
+    use crate::{
+        StdbStatus,
+        lifecycle::{
+            lifecycle_channel::LifecycleChannel,
+            stdb_connection::{StdbConnect, StdbDisconnect},
+        },
+        test_support::{FakeConn, FakeConnector, test_app},
+    };
 
     #[test]
     fn reconnect_waits_until_the_backoff_delay_elapses() {
@@ -193,5 +268,89 @@ mod tests {
             ReconnectAction::Reconnect
         ));
         assert_eq!(state.retry_count, 1);
+    }
+
+    #[test]
+    fn reconnect_system_reconnects_after_a_drop_once_backoff_elapses() {
+        use std::time::Duration;
+
+        let mut app = test_app(FakeConnector);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_secs(1)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        // Connect.
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+
+        // Unsolicited drop: push Disconnected while intent stays Connected.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.disconnected().unwrap();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+
+        // Before the 1s backoff elapses: no reconnect.
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(500));
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected,
+            "must not reconnect before the backoff elapses",
+        );
+
+        // Past the backoff: reconnect.
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(600));
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connected,
+            "must reconnect once the backoff elapses",
+        );
+    }
+
+    #[test]
+    fn reconnect_system_does_not_reconnect_after_explicit_disconnect() {
+        use std::time::Duration;
+
+        let mut app = test_app(FakeConnector);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_millis(1)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        // Connect, then explicitly disconnect (intent → Disconnected).
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+        app.world_mut().trigger(StdbDisconnect);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+
+        // Well past the 1ms backoff: must stay disconnected — intent is Disconnected.
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(5));
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected,
+            "explicit disconnect must suppress auto-reconnect",
+        );
     }
 }

@@ -43,20 +43,15 @@ pub(crate) fn disconnect_on_stdbdisconnect<Cn: Connector>(
 
 #[cfg(test)]
 mod tests {
-    use bevy::app::App;
-
     use crate::{
-        StdbConnection, StdbPlugin, StdbStatus,
+        StdbConnection, StdbStatus,
         lifecycle::stdb_connection::{StdbConnect, StdbDisconnect},
-        test_support::{FakeConn, FakeConnector},
+        test_support::{FakeConn, FakeConnector, test_app},
     };
 
     #[test]
     fn stdb_connect_establishes_the_connection() {
-        let mut app = App::new();
-        app.add_plugins(StdbPlugin {
-            connector: FakeConnector,
-        });
+        let mut app = test_app(FakeConnector);
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -72,10 +67,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_closes_the_connection() {
-        let mut app = App::new();
-        app.add_plugins(StdbPlugin {
-            connector: FakeConnector,
-        });
+        let mut app = test_app(FakeConnector);
 
         // Connect first.
         app.world_mut().trigger(StdbConnect);
