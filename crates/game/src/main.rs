@@ -22,11 +22,22 @@ fn main() {
         )
         .add_systems(Startup, setup)
         .add_systems(Update, report_players.run_if(is_stdb_connected))
+        .add_observer(subscribe_to_players_on_connect)
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
+}
+
+fn subscribe_to_players_on_connect(
+    _: On<stdb_bevy::StdbConnected>,
+    conn: Res<StdbConnection<DbConnection>>,
+) {
+    conn.subscription_builder()
+        .on_applied(|_| info!("subscription applied"))
+        .on_error(|_, err| error!("subscription error: {err}"))
+        .subscribe(["SELECT * FROM player"]);
 }
 
 /// The connection proof: log the online player count whenever it changes.
