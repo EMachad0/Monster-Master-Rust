@@ -17,6 +17,7 @@ pub enum LifecycleEvent<C: StdbConn> {
     Connected(C),
     Disconnected,
     ConnectionError(ConnectionError),
+    Connecting,
 }
 
 pub struct LifecycleSink<C: StdbConn> {
@@ -37,6 +38,10 @@ impl<C: StdbConn> LifecycleSink<C> {
         error: ConnectionError,
     ) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
         self.sender.send(LifecycleEvent::ConnectionError(error))
+    }
+
+    pub fn connecting(&self) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
+        self.sender.send(LifecycleEvent::Connecting)
     }
 }
 
@@ -93,6 +98,9 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
                 commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbConnectionError::new(e));
+            }
+            LifecycleEvent::Connecting => {
+                commands.insert_resource(StdbStatus::Connecting);
             }
         }
     }

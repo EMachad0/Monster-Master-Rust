@@ -26,6 +26,9 @@ where
     type Conn = C;
 
     fn connect(&self, sink: crate::LifecycleSink<Self::Conn>) {
+        sink.connecting()
+            .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+
         let builder = DbConnectionBuilder::<C::Module>::new()
             .with_uri(self.uri.clone())
             .with_database_name(self.database_name.clone())

@@ -2,7 +2,7 @@
 //!
 //! This crate knows nothing about any specific Module.
 
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 
 use crate::connection::stdb_intent::{
     StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
@@ -35,6 +35,13 @@ mod connection_driver;
 mod lifecycle;
 mod row;
 mod utils;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum StdbSystemSet {
+    LifecycleEvents,
+    RowMessagesPush,
+    Main,
+}
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
 #[derive(Clone, Copy, Default)]
@@ -72,13 +79,27 @@ impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
         app.add_observer(disconnect_on_stdbdisconnect::<Cd>);
         app.add_observer(reset_reconnectstate_on_stdbdisconnected);
 
+        app.configure_sets(
+            bevy::app::Update,
+            (
+                StdbSystemSet::LifecycleEvents,
+                StdbSystemSet::RowMessagesPush,
+                StdbSystemSet::Main,
+            )
+                .chain(),
+        );
+
+        app.add_systems(
+            bevy::app::Update,
+            drain_lifecycle_sink::<Cd::Conn>.in_set(StdbSystemSet::LifecycleEvents),
+        );
         app.add_systems(
             bevy::app::Update,
             (
-                drain_lifecycle_sink::<Cd::Conn>,
                 tick_stdbconnectiondriver::<Cd>.run_if(is_stdb_connected),
                 tick_reconnectstate::<Cd>.run_if(should_tick_reconnectstate),
-            ),
+            )
+                .in_set(StdbSystemSet::Main),
         );
 
         if self.connect_on_startup {
@@ -109,7 +130,10 @@ where
         },
     );
 
-    app.add_systems(bevy::app::Update, drain_row_sink::<T>);
+    app.add_systems(
+        bevy::app::Update,
+        drain_row_sink::<T>.in_set(StdbSystemSet::RowMessagesPush),
+    );
 }
 
 #[cfg(test)]
@@ -131,7 +155,8 @@ pub(crate) mod test_support {
         type Conn = FakeConn;
 
         fn connect(&self, sink: LifecycleSink<FakeConn>) {
-            // Synchronous success: hand the connection straight back through the sink.
+            // Mirror the real driver contract: announce Connecting, then complete synchronously.
+            sink.connecting().unwrap();
             sink.connected(FakeConn).unwrap();
         }
 
@@ -588,7 +613,7 @@ mod tests {
         });
         add_stdb_table::<FakeConn, Widget>(&mut app, register_widget);
         app.init_resource::<WidgetInserts>();
-        app.add_systems(Update, capture_widget_inserts);
+        app.add_systems(Update, capture_widget_inserts.in_set(StdbSystemSet::Main));
 
         // First connect: registrar runs once.
         app.world_mut().trigger(StdbConnect);
@@ -627,6 +652,175 @@ mod tests {
             app.world().resource::<WidgetInserts>().0.len(),
             2,
             "the registrar must re-register on the rebuilt connection",
+        );
+    }
+
+    #[test]
+    fn rows_reach_after_set_readers_in_the_same_frame() {
+        let mut app = test_app(FakeConnectionDriver);
+        add_stdb_table::<FakeConn, Widget>(&mut app, register_widget);
+        app.init_resource::<WidgetInserts>();
+        // A Game system ordered after the bridge's ingest set must see this frame's rows — the
+        // drains run before it within the frame, not a frame late.
+        app.add_systems(Update, capture_widget_inserts.in_set(StdbSystemSet::Main));
+
+        // Synchronous connect: the registrar pushes a Widget while this frame's Connected drains.
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<WidgetInserts>().0,
+            vec![Widget { id: 1 }],
+            "a row registered on connect reaches an .after(StdbSet) reader in the same frame",
+        );
+    }
+
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A driver whose `connect` does **not** complete synchronously: it counts the kick and parks
+    /// the sink so a test can observe the in-flight `Connecting` window and deliver the result
+    /// later — mimicking wasm's multi-frame `build().await`.
+    #[derive(Resource, Clone, Default)]
+    struct DeferredDriver {
+        connects: Arc<AtomicUsize>,
+        parked_sink: Arc<Mutex<Option<LifecycleSink<FakeConn>>>>,
+    }
+
+    impl StdbConnectionDriver for DeferredDriver {
+        type Conn = FakeConn;
+
+        fn connect(&self, sink: LifecycleSink<FakeConn>) {
+            sink.connecting().unwrap();
+            self.connects.fetch_add(1, Ordering::Relaxed);
+            *self.parked_sink.lock().unwrap() = Some(sink); // parked: not connected yet
+        }
+
+        fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
+
+        fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
+            sink.disconnected().unwrap();
+        }
+    }
+
+    #[test]
+    fn connect_in_flight_is_connecting() {
+        let mut app = test_app(DeferredDriver::default());
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connecting,
+            "while a build is in flight the status is Connecting, not Disconnected",
+        );
+    }
+
+    #[test]
+    fn reconnect_does_not_fire_while_a_connect_is_in_flight() {
+        use std::time::Duration;
+
+        let driver = DeferredDriver::default();
+        let probe = driver.clone(); // shares the connect counter with the plugin's copy
+        let mut app = test_app(driver);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_millis(500)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        // Kick a connect; it parks (in flight).
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(probe.connects.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connecting
+        );
+
+        // Let far more than the backoff elapse while the build is still in flight.
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_secs(5));
+        app.update();
+        app.update();
+
+        assert_eq!(
+            probe.connects.load(Ordering::Relaxed),
+            1,
+            "Connecting must suppress auto-reconnect — no second build may be kicked in flight",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connecting
+        );
+    }
+
+    #[test]
+    fn connecting_resolves_to_connected_when_the_build_lands() {
+        let driver = DeferredDriver::default();
+        let probe = driver.clone();
+        let mut app = test_app(driver);
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connecting
+        );
+
+        // Deliver the parked connection, as the real async build would on a later frame.
+        let sink = probe.parked_sink.lock().unwrap().take().unwrap();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+    }
+
+    #[test]
+    fn connecting_resolves_to_disconnected_on_error_and_rearms_reconnect() {
+        use std::time::Duration;
+
+        let driver = DeferredDriver::default();
+        let probe = driver.clone();
+        let mut app = test_app(driver);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_millis(500)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        assert_eq!(probe.connects.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connecting
+        );
+
+        // The in-flight build fails.
+        let sink = probe.parked_sink.lock().unwrap().take().unwrap();
+        sink.connection_error(ConnectionError::ConnectionRefused)
+            .unwrap();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected,
+            "a failed build leaves Connecting for Disconnected",
+        );
+
+        // Disconnected + intent Connected → auto-reconnect re-arms and fires after the backoff.
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_millis(600));
+        app.update();
+        app.update();
+        assert_eq!(
+            probe.connects.load(Ordering::Relaxed),
+            2,
+            "after a failed build, auto-reconnect kicks a fresh build once the backoff elapses",
         );
     }
 }
