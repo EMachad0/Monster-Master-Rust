@@ -3,7 +3,7 @@
 //! Compiled to wasm and published with `just publish`. Client bindings are generated from it
 //! into the `stdb_bindings` crate via `just generate`.
 
-use spacetimedb::{reducer, table, Identity, ReducerContext, Table};
+use spacetimedb::{Identity, ReducerContext, Table, reducer, table};
 
 /// One connected player. `public` so clients may subscribe to it.
 #[table(accessor = player, public)]
