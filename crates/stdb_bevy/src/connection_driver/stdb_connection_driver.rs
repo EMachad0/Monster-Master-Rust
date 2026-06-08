@@ -8,7 +8,7 @@ use crate::{
     lifecycle::lifecycle_channel::{LifecycleChannel, LifecycleSink},
 };
 
-pub trait StdbConnectionDriver: Resource {
+pub trait StdbConnectionDriver: Clone + Resource {
     type Conn: StdbConn;
 
     fn connect(&self, sink: LifecycleSink<Self::Conn>);
@@ -16,6 +16,14 @@ pub trait StdbConnectionDriver: Resource {
     fn disconnect(&self, conn: &StdbConnection<Self::Conn>, sink: LifecycleSink<Self::Conn>);
 
     fn tick(&self, conn: &StdbConnection<Self::Conn>);
+}
+
+pub(crate) fn connect<Cd: StdbConnectionDriver>(
+    driver: Res<Cd>,
+    lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
+) {
+    let sink = lifecycle_channel.sink();
+    driver.connect(sink);
 }
 
 pub(crate) fn connect_on_stdbconnect<Cd: StdbConnectionDriver>(

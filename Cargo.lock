@@ -5620,9 +5620,11 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "crossbeam-channel",
+ "http",
  "rand 0.10.1",
  "spacetimedb-sdk",
  "thiserror 2.0.18",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ pub struct StdbConnected;
 #[derive(Debug, Copy, Clone, Event)]
 pub struct StdbDisconnected;
 
-#[derive(Debug, Copy, Clone, Event)]
+#[derive(Debug, Clone, Event)]
 pub struct StdbConnectionError(ConnectionError);
 
 impl StdbConnectionError {
@@ -14,13 +14,16 @@ impl StdbConnectionError {
         Self(error)
     }
 
-    pub fn error(&self) -> ConnectionError {
-        self.0
+    pub fn error(&self) -> &ConnectionError {
+        &self.0
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ConnectionError {
-    #[error("connection refused")]
+    #[error("Connection Refused")]
     ConnectionRefused,
+
+    #[error(transparent)]
+    SdkError(#[from] spacetimedb_sdk::Error),
 }

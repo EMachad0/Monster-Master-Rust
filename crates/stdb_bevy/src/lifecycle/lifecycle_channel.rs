@@ -40,6 +40,14 @@ impl<C: StdbConn> LifecycleSink<C> {
     }
 }
 
+impl<C: StdbConn> Clone for LifecycleSink<C> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct LifecycleChannel<C: StdbConn> {
     sender: crossbeam_channel::Sender<LifecycleEvent<C>>,

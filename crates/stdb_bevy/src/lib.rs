@@ -19,7 +19,9 @@ use crate::row::row_channel::{RowChannel, drain_row_sink};
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
 pub use crate::connection::stdb_status::{StdbStatus, stdb_connected as is_stdb_connected};
-pub use crate::connection_driver::stdb_connection_driver::StdbConnectionDriver;
+pub use crate::connection_driver::{
+    sdk_connection_driver::SdkConnectionDriver, stdb_connection_driver::StdbConnectionDriver,
+};
 pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
 pub use crate::lifecycle::lifecycle_events::{
     StdbConnected, StdbConnectionError, StdbDisconnected,
@@ -38,9 +40,24 @@ mod utils;
 #[derive(Clone, Copy, Default)]
 pub struct StdbPlugin<Cd: StdbConnectionDriver> {
     driver: Cd,
+    connect_on_startup: bool,
 }
 
-impl<Cd: Clone + StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
+impl<Cd: StdbConnectionDriver> StdbPlugin<Cd> {
+    pub fn new(driver: Cd) -> Self {
+        Self {
+            driver,
+            connect_on_startup: false,
+        }
+    }
+
+    pub fn with_connect_on_startup(mut self) -> Self {
+        self.connect_on_startup = true;
+        self
+    }
+}
+
+impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
     fn build(&self, app: &mut bevy::app::App) {
         app.insert_resource(StdbIntent::Disconnected);
         app.insert_resource(StdbStatus::Disconnected);
@@ -63,6 +80,13 @@ impl<Cd: Clone + StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
                 tick_reconnectstate::<Cd>.run_if(should_tick_reconnectstate),
             ),
         );
+
+        if self.connect_on_startup {
+            app.add_systems(
+                bevy::app::Startup,
+                connection_driver::stdb_connection_driver::connect::<Cd>,
+            );
+        }
     }
 }
 
@@ -83,8 +107,6 @@ pub(crate) mod test_support {
     /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
     #[derive(Clone, Default)]
     pub(crate) struct FakeConn;
-
-    impl StdbConn for FakeConn {}
 
     /// A connection driver whose I/O is synchronous and in-memory, so the connection layer can be tested
     /// through `StdbPlugin` with no socket.
@@ -110,7 +132,7 @@ pub(crate) mod test_support {
     /// reconnect system needs `Time`, which production supplies via the Game's `TimePlugin`.
     pub(crate) fn test_app<Cd: StdbConnectionDriver + Clone>(driver: Cd) -> bevy::app::App {
         let mut app = bevy::app::App::new();
-        app.add_plugins(crate::StdbPlugin { driver });
+        app.add_plugins(crate::StdbPlugin::new(driver));
         app.insert_resource(bevy::time::Time::<()>::default());
         app
     }
@@ -225,7 +247,7 @@ mod tests {
         app.init_resource::<ConnectErrorCaptured>();
         app.add_observer(
             |on: On<StdbConnectionError>, mut captured: ResMut<ConnectErrorCaptured>| {
-                captured.0 = Some(on.event().error());
+                captured.0 = Some(on.event().error().clone());
             },
         );
 
@@ -236,9 +258,11 @@ mod tests {
 
         app.update();
 
+        let error = app.world().resource::<ConnectErrorCaptured>().0.clone();
+        assert!(error.is_some());
         assert_eq!(
-            app.world().resource::<ConnectErrorCaptured>().0,
-            Some(ConnectionError::ConnectionRefused),
+            format!("{}", error.unwrap()),
+            "Connection Refused",
             "the StdbConnectionError observer should fire carrying the error message",
         );
         assert_eq!(
