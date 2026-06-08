@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use bevy::ecs::{observer::On, resource::Resource, system::Res};
 
 use crate::{
@@ -43,7 +41,7 @@ pub(crate) fn disconnect_on_stdbdisconnect<Cd: StdbConnectionDriver>(
 ) {
     if let Some(connection) = connection {
         let sink = lifecycle_channel.sink();
-        driver.disconnect(connection.deref(), sink);
+        driver.disconnect(&connection, sink);
     }
 }
 

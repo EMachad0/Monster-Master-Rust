@@ -77,15 +77,14 @@ where
         conn: &crate::StdbConnection<Self::Conn>,
         sink: crate::LifecycleSink<Self::Conn>,
     ) {
-        conn.0
-            .disconnect()
+        conn.disconnect()
             .unwrap_or_else(|err| bevy::log::error!("Disconnection Error {}", err));
         sink.disconnected()
             .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
     }
 
     fn tick(&self, conn: &crate::StdbConnection<Self::Conn>) {
-        (self.tick)(&conn.0).unwrap_or_else(|err| bevy::log::error!("TickError: {}", err));
+        (self.tick)(conn).unwrap_or_else(|err| bevy::log::error!("TickError: {}", err));
     }
 }
 

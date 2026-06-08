@@ -14,7 +14,7 @@ use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
-use crate::row::row_channel::{RowChannel, drain_row_sink};
+use crate::row::row_channel::{RowChannel, RowSink, drain_row_sink};
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
@@ -90,11 +90,25 @@ impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
     }
 }
 
-fn install_table_events<T: 'static + Send + Sync>(app: &mut bevy::app::App) {
+fn add_stdb_table<C, T>(app: &mut bevy::app::App, register: fn(&StdbConnection<C>, RowSink<T>))
+where
+    C: StdbConn,
+    T: 'static + Send + Sync,
+{
     app.insert_resource(RowChannel::<T>::new());
     app.add_message::<RowInserted<T>>();
     app.add_message::<RowUpdated<T>>();
     app.add_message::<RowDeleted<T>>();
+
+    app.add_observer(
+        move |_: bevy::ecs::observer::On<StdbConnected>,
+              connection: bevy::ecs::system::Res<StdbConnection<C>>,
+              row_channel: bevy::ecs::system::Res<RowChannel<T>>| {
+            let sink = row_channel.sink();
+            (register)(&connection, sink);
+        },
+    );
+
     app.add_systems(bevy::app::Update, drain_row_sink::<T>);
 }
 
@@ -338,7 +352,7 @@ mod tests {
     #[test]
     fn insert_event_becomes_row_inserted_message() {
         let mut app = App::new();
-        install_table_events::<Foo>(&mut app);
+        add_stdb_table::<FakeConn, Foo>(&mut app, |_, _| {});
         app.init_resource::<CapturedInserts>();
         app.add_systems(Update, capture_inserts);
 
@@ -375,7 +389,7 @@ mod tests {
     #[test]
     fn update_event_becomes_row_updated_message() {
         let mut app = App::new();
-        install_table_events::<Foo>(&mut app);
+        add_stdb_table::<FakeConn, Foo>(&mut app, |_, _| {});
         app.init_resource::<CapturedUpdates>();
         app.add_systems(Update, capture_updates);
 
@@ -411,7 +425,7 @@ mod tests {
     #[test]
     fn delete_event_becomes_row_deleted_message() {
         let mut app = App::new();
-        install_table_events::<Foo>(&mut app);
+        add_stdb_table::<FakeConn, Foo>(&mut app, |_, _| {});
         app.init_resource::<CapturedDeletes>();
         app.add_systems(Update, capture_deletes);
 
@@ -434,7 +448,7 @@ mod tests {
     #[test]
     fn bulk_inserts_preserve_count_and_order() {
         let mut app = App::new();
-        install_table_events::<Foo>(&mut app);
+        add_stdb_table::<FakeConn, Foo>(&mut app, |_, _| {});
         app.init_resource::<CapturedInserts>();
         app.add_systems(Update, capture_inserts);
 
@@ -494,6 +508,125 @@ mod tests {
         assert_eq!(
             *app.world().resource::<StdbIntent>(),
             StdbIntent::Disconnected
+        );
+    }
+
+    use crate::row::row_channel::RowSink;
+
+    /// A stand-in row type. `add_stdb_table` needs only `Clone + Send + Sync + 'static`.
+    #[derive(Clone, PartialEq, Debug)]
+    struct Widget {
+        id: u32,
+    }
+
+    /// Accumulates `RowInserted<Widget>` across frames, like a Game system would.
+    #[derive(Resource, Default)]
+    struct WidgetInserts(Vec<Widget>);
+
+    fn capture_widget_inserts(
+        mut reader: MessageReader<RowInserted<Widget>>,
+        mut captured: ResMut<WidgetInserts>,
+    ) {
+        for msg in reader.read() {
+            captured.0.push(msg.0.clone());
+        }
+    }
+
+    /// The registrar `add_stdb_table` re-runs on every connect. Production registers the SDK's
+    /// `on_insert`/`on_update`/`on_delete` here; the test instead pushes one canned row per call,
+    /// so the number of `RowInserted<Widget>` messages equals how many times the registrar ran —
+    /// and proves the `RowSink` it was handed is wired through to the message stream.
+    fn register_widget(_conn: &StdbConnection<FakeConn>, sink: RowSink<Widget>) {
+        sink.insert(Widget { id: 1 }).unwrap();
+    }
+
+    #[test]
+    fn add_stdb_table_does_not_register_before_connect() {
+        let mut app = test_app(FakeConnectionDriver);
+        add_stdb_table::<FakeConn, Widget>(&mut app, register_widget);
+        app.init_resource::<WidgetInserts>();
+        app.add_systems(Update, capture_widget_inserts);
+
+        // No connection yet: the registrar must not run.
+        app.update();
+        app.update();
+
+        assert!(
+            app.world().resource::<WidgetInserts>().0.is_empty(),
+            "the registrar must not run while disconnected",
+        );
+    }
+
+    #[test]
+    fn add_stdb_table_registers_on_connect_and_wires_the_message_pipeline() {
+        let mut app = test_app(FakeConnectionDriver);
+        add_stdb_table::<FakeConn, Widget>(&mut app, register_widget);
+        app.init_resource::<WidgetInserts>();
+        app.add_systems(Update, capture_widget_inserts);
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        app.update();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<WidgetInserts>().0,
+            vec![Widget { id: 1 }],
+            "on connect the registrar runs once and its RowSink reaches RowInserted<Widget>",
+        );
+    }
+
+    #[test]
+    fn add_stdb_table_re_registers_on_every_reconnect() {
+        use std::time::Duration;
+
+        let mut app = test_app(FakeConnectionDriver);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_secs(1)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+        add_stdb_table::<FakeConn, Widget>(&mut app, register_widget);
+        app.init_resource::<WidgetInserts>();
+        app.add_systems(Update, capture_widget_inserts);
+
+        // First connect: registrar runs once.
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<WidgetInserts>().0.len(),
+            1,
+            "the registrar runs on the first connect",
+        );
+
+        // Unsolicited drop — intent stays Connected, so auto-reconnect is armed.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.disconnected().unwrap();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+
+        // Past the backoff the connection is rebuilt — the registrar MUST run again on the new
+        // connection, or row messages silently stop after the first drop.
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_millis(1100));
+        app.update();
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connected,
+            "should have reconnected once the backoff elapsed",
+        );
+        assert_eq!(
+            app.world().resource::<WidgetInserts>().0.len(),
+            2,
+            "the registrar must re-register on the rebuilt connection",
         );
     }
 }

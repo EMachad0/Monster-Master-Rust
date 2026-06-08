@@ -15,9 +15,9 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Resource)]
 pub struct ReconnectPolicy {
-    backoff: Backoff,
-    jitter: Jitter,
-    max_retries: Option<u32>,
+    pub backoff: Backoff,
+    pub jitter: Jitter,
+    pub max_retries: Option<u32>,
 }
 
 impl Default for ReconnectPolicy {

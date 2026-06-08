@@ -42,7 +42,7 @@ fn subscribe_to_players_on_connect(
 
 /// The connection proof: log the online player count whenever it changes.
 fn report_players(conn: Res<StdbConnection<DbConnection>>, mut last: Local<i64>) {
-    let online = conn.0.db().player().iter().filter(|p| p.online).count() as i64;
+    let online = conn.db().player().iter().filter(|p| p.online).count() as i64;
     if online != *last {
         *last = online;
         info!("{online} player(s) online");
