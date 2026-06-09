@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[features]
+# Exposes `stdb_bevy::test_support` (fakes + `test_app`) to downstream crates and the public-API
+# e2e suite under `tests/`. Off by default, so it never bloats production builds.
+test-support = []
+
 [dependencies]
 bevy.workspace = true
 crossbeam-channel.workspace = true
@@ -11,6 +16,12 @@ thiserror.workspace = true
 spacetimedb-sdk.workspace = true
 rand.workspace = true
 http.workspace = true
+
+# Enables `test-support` when building this crate's own integration tests under `tests/`
+# (they need the public fakes). A self-dev-dependency is the standard way to turn a feature on for
+# the integration-test build only.
+[dev-dependencies]
+stdb_bevy = { path = ".", features = ["test-support"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # The SDK's browser websocket path (gloo-net). Native uses the default tokio path; only wasm needs

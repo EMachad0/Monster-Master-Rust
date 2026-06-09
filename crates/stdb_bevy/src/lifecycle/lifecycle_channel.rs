@@ -105,3 +105,130 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+
+    use crate::lifecycle::lifecycle_channel::LifecycleChannel;
+    use crate::lifecycle::lifecycle_events::ConnectionError;
+    use crate::test_support::{FakeConn, FakeConnectionDriver, test_app};
+    use crate::{StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected, StdbStatus};
+
+    #[derive(Resource, Default)]
+    struct ObserverFired(bool);
+
+    #[derive(Resource, Default)]
+    struct DisconnectFired(bool);
+
+    #[derive(Resource, Default)]
+    struct ConnectErrorCaptured(Option<ConnectionError>);
+
+    #[test]
+    fn connected_signal_triggers_observer_status_and_resource() {
+        let mut app = test_app(FakeConnectionDriver::default());
+
+        app.init_resource::<ObserverFired>();
+        app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
+
+        // Before any signal: disconnected, no connection resource yet.
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_none()
+        );
+
+        // Push a `Connected` signal through the same seam the SDK adapter uses in production.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+
+        app.update();
+
+        assert!(
+            app.world().resource::<ObserverFired>().0,
+            "the StdbConnected observer should fire on a Connected signal",
+        );
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_some(),
+            "StdbConnection<C> should be inserted on connect",
+        );
+    }
+
+    #[test]
+    fn disconnected_signal_triggers_observer_status_and_removes_resource() {
+        let mut app = test_app(FakeConnectionDriver::default());
+
+        app.init_resource::<DisconnectFired>();
+        app.add_observer(
+            |_on: On<StdbDisconnected>, mut fired: ResMut<DisconnectFired>| fired.0 = true,
+        );
+
+        // Connect first, so there is a live connection to drop.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_some()
+        );
+
+        // Now drop the connection.
+        sink.disconnected().unwrap();
+        app.update();
+
+        assert!(
+            app.world().resource::<DisconnectFired>().0,
+            "the StdbDisconnected observer should fire on a Disconnected signal",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_none(),
+            "StdbConnection<C> should be removed on disconnect",
+        );
+    }
+
+    #[test]
+    fn connect_error_signal_triggers_observer_with_message_and_status() {
+        let mut app = test_app(FakeConnectionDriver::default());
+
+        app.init_resource::<ConnectErrorCaptured>();
+        app.add_observer(
+            |on: On<StdbConnectionError>, mut captured: ResMut<ConnectErrorCaptured>| {
+                captured.0 = Some(on.event().error().clone());
+            },
+        );
+
+        // Push a connect-error signal through the same seam the SDK adapter uses in production.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connection_error(ConnectionError::ConnectionRefused)
+            .unwrap();
+
+        app.update();
+
+        let error = app.world().resource::<ConnectErrorCaptured>().0.clone();
+        assert!(error.is_some());
+        assert_eq!(
+            format!("{}", error.unwrap()),
+            "Connection Refused",
+            "the StdbConnectionError observer should fire carrying the error message",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+    }
+}

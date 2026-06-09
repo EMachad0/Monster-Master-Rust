@@ -271,7 +271,7 @@ mod tests {
     fn reconnect_system_reconnects_after_a_drop_once_backoff_elapses() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnectionDriver);
+        let mut app = test_app(FakeConnectionDriver::default());
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_secs(1)),
             jitter: Jitter(0.0),
@@ -320,7 +320,7 @@ mod tests {
     fn reconnect_system_does_not_reconnect_after_explicit_disconnect() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnectionDriver);
+        let mut app = test_app(FakeConnectionDriver::default());
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_millis(1)),
             jitter: Jitter(0.0),

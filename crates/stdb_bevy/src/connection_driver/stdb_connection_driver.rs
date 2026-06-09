@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn stdb_connect_establishes_the_connection() {
-        let mut app = test_app(FakeConnectionDriver);
+        let mut app = test_app(FakeConnectionDriver::default());
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_closes_the_connection() {
-        let mut app = test_app(FakeConnectionDriver);
+        let mut app = test_app(FakeConnectionDriver::default());
 
         // Connect first.
         app.world_mut().trigger(StdbConnect);
