@@ -158,16 +158,14 @@ Tests install just the engine (a generic `fn`/sub-plugin) with a fake `C`, never
 
 ---
 
-## Phase D — Disconnect delete-sweep
+## Phase D — Disconnect delete-sweep — **CANCELLED**
 
-### Slice 11 — on disconnect, emit `RowDeleted<T>` for cached rows
-- **Behavior:** disconnect emits a `RowDeleted<T>` for every row that was in the table's cache (the SDK
-  does *not* do this; ADR 0002), so the Game's delete handlers keep its ECS view consistent.
-- **You implement:** registration also stores a cache-snapshot fn `fn(&C) -> Vec<T>` (the macro
-  provides `|c| c.db().foo().iter().collect()`); the disconnect drain calls each and emits deletes
-  before the resource is removed.
-- **I test:** with a fake `C` whose snapshot returns canned rows, push `Disconnected`; assert a
-  `RowDeleted<Foo>` per canned row.
+Dropped after verifying SDK 2.4 behavior (see ADR 0002, updated): on reconnect the fresh-cache
+subscription **re-fires `on_insert` for every still-matching row**, and a blanket delete-sweep would
+make persisting rows despawn-then-respawn (flicker) while baking one reconciliation policy into a
+module-agnostic forwarder. The Bridge now forwards **only real SDK row events**; reconciliation
+across reconnect is the Game's policy (key entities by pk, treat `RowInserted` as an upsert; opt into
+a clean-slate sweep via a one-line `StdbDisconnected` observer if desired).
 
 ---
 
