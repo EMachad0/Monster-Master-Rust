@@ -31,6 +31,7 @@ pub use crate::row::row_forwarder::RowForwarder;
 pub use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::utils::backoff::{Backoff, Jitter};
+pub use spacetimedb_sdk as __sdk;
 
 mod connection;
 mod connection_driver;
@@ -50,7 +51,7 @@ pub enum StdbSystemSet {
 pub struct StdbPlugin<Cd: StdbConnectionDriver> {
     driver: Cd,
     connect_on_startup: bool,
-    tables: Vec<TableRegistration>,
+    tables: Vec<TableRegistration<Cd::Conn>>,
 }
 
 impl<Cd: StdbConnectionDriver> StdbPlugin<Cd> {
@@ -67,7 +68,10 @@ impl<Cd: StdbConnectionDriver> StdbPlugin<Cd> {
         self
     }
 
-    pub fn add_tables(mut self, registrators: impl IntoIterator<Item = TableRegistration>) -> Self {
+    pub fn add_tables<const N: usize>(
+        mut self,
+        registrators: [TableRegistration<Cd::Conn>; N],
+    ) -> Self {
         self.tables.extend(registrators);
         self
     }

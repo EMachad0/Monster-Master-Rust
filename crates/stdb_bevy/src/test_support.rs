@@ -7,10 +7,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::resource::Resource;
-use spacetimedb_sdk::{Table as SdkTable, TableWithPrimaryKey as SdkTableWithPrimaryKey};
+use spacetimedb_sdk::{
+    ConnectionId, DbContext, Identity, Table as SdkTable,
+    TableWithPrimaryKey as SdkTableWithPrimaryKey,
+};
 
 use crate::lifecycle::lifecycle_events::ConnectionError;
-use crate::{LifecycleSink, StdbConnection, StdbConnectionDriver};
+use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
 
 /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
 #[derive(Clone, Default)]
@@ -154,6 +157,84 @@ impl<R: 'static> SdkTableWithPrimaryKey for FakeTable<R> {
         }
     }
     fn remove_on_update(&self, _id: Self::UpdateCallbackId) {}
+}
+
+/// A driver that connects synchronously, handing back a caller-supplied connection value. Generic
+/// over the connection type `C`, so a test can drive the bridge with a `FakeDbContext<V>` whose
+/// DbView exposes table accessors — the shape the `stdb_table!` macro's `conn.db().<table>()` body
+/// needs. (`FakeConnectionDriver` can't: its `Conn` is the field-less `FakeConn`.)
+#[derive(Resource, Clone)]
+pub struct CannedDriver<C: StdbConn + Clone> {
+    conn: C,
+}
+
+impl<C: StdbConn + Clone> CannedDriver<C> {
+    pub fn new(conn: C) -> Self {
+        Self { conn }
+    }
+}
+
+impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
+    type Conn = C;
+
+    fn connect(&self, sink: LifecycleSink<C>) {
+        sink.connecting().unwrap();
+        sink.connected(self.conn.clone()).unwrap();
+    }
+
+    fn tick(&self, _conn: &StdbConnection<C>) {}
+
+    fn disconnect(&self, _conn: &StdbConnection<C>, sink: LifecycleSink<C>) {
+        sink.disconnected().unwrap();
+    }
+}
+
+/// A fake connection that satisfies the SDK's [`DbContext`] so the `stdb_table!` macro's
+/// `conn.db().<table>()` body runs in a unit test. Generic over the DbView `V`, so each test
+/// supplies its own table accessors (mirroring a generated `RemoteTables`). Only `db()` is
+/// meaningful; the rest are stubs the macro never reaches.
+#[derive(Clone)]
+pub struct FakeDbContext<V> {
+    db: V,
+}
+
+impl<V> FakeDbContext<V> {
+    pub fn new(db: V) -> Self {
+        Self { db }
+    }
+}
+
+impl<V: Send + Sync + 'static> DbContext for FakeDbContext<V> {
+    type DbView = V;
+    type Reducers = ();
+    type Procedures = ();
+    type SubscriptionBuilder = ();
+
+    fn db(&self) -> &V {
+        &self.db
+    }
+    fn reducers(&self) -> &() {
+        &()
+    }
+    fn procedures(&self) -> &() {
+        &()
+    }
+    fn is_active(&self) -> bool {
+        true
+    }
+    fn disconnect(&self) -> spacetimedb_sdk::Result<()> {
+        unimplemented!("FakeDbContext is a read-only test double")
+    }
+    fn subscription_builder(&self) {}
+    fn try_identity(&self) -> Option<Identity> {
+        None
+    }
+    fn connection_id(&self) -> ConnectionId {
+        unimplemented!("FakeDbContext has no ConnectionId")
+    }
+    fn try_connection_id(&self) -> Option<ConnectionId> {
+        None
+    }
 }
 
 /// Build a test `App` with the bridge installed for `driver`, plus a `Time` resource — the reconnect

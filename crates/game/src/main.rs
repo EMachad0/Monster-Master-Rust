@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use spacetimedb_sdk::DbContext;
 use stdb_bevy::{
-    RowDeleted, RowForwarder, RowInserted, SdkConnectionDriver, StdbConnection, StdbPlugin,
-    TableRegistration, is_stdb_connected,
+    RowDeleted, RowInserted, SdkConnectionDriver, StdbConnection, StdbPlugin, is_stdb_connected,
+    stdb_table,
 };
 use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
 
@@ -21,7 +21,7 @@ fn main() {
                 database_name: "monster-master".to_string(),
                 tick: DbConnection::frame_tick,
             })
-            .add_tables([TableRegistration::new(forward_players)])
+            .add_tables([stdb_table!(player => Player)])
             .with_connect_on_startup(),
         )
         .init_resource::<OnlineCounter>()
@@ -50,13 +50,6 @@ fn subscribe_to_players_on_connect(
         .on_applied(|_| info!("subscription applied"))
         .on_error(|_, err| error!("subscription error: {err}"))
         .subscribe(["SELECT * FROM player WHERE online = true"]);
-}
-
-/// Re-runs on every (re)connect: forwards `player` row changes into
-/// `RowInserted`/`RowUpdated`/`RowDeleted<Player>` messages. A named fn (rather than an inline
-/// closure) so its concrete signature pins `C`/`R` — the closure form can't infer them.
-fn forward_players(conn: &StdbConnection<DbConnection>, fwd: RowForwarder<Player>) {
-    fwd.forward(&conn.db().player());
 }
 
 #[derive(Debug, Default, Resource)]
