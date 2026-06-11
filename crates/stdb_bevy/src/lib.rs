@@ -17,7 +17,8 @@ use crate::lifecycle::reconnect::{
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
-pub use crate::connection::stdb_status::{StdbStatus, stdb_connected as is_stdb_connected};
+pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
+pub use crate::connection::stdb_token::StdbToken;
 pub use crate::connection_driver::{
     sdk_connection_driver::SdkConnectionDriver, stdb_connection_driver::StdbConnectionDriver,
 };
@@ -118,7 +119,7 @@ impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
         if self.connect_on_startup {
             app.add_systems(
                 bevy::app::Startup,
-                connection_driver::stdb_connection_driver::connect::<Cd>,
+                crate::connection::connection_events::trigger_connect,
             );
         }
 

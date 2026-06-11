@@ -16,14 +16,6 @@ pub trait StdbConnectionDriver: Clone + Resource {
     fn tick(&self, conn: &StdbConnection<Self::Conn>);
 }
 
-pub(crate) fn connect<Cd: StdbConnectionDriver>(
-    driver: Res<Cd>,
-    lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
-) {
-    let sink = lifecycle_channel.sink();
-    driver.connect(sink);
-}
-
 pub(crate) fn connect_on_stdbconnect<Cd: StdbConnectionDriver>(
     _: On<StdbConnect>,
     driver: Res<Cd>,
@@ -168,6 +160,66 @@ mod tests {
             probe.ticks.load(Ordering::Relaxed),
             after_disconnect,
             "the connection must not be ticked after disconnect",
+        );
+    }
+
+    #[test]
+    fn connect_on_startup_arms_the_reconnect_intent() {
+        use crate::StdbPlugin;
+        use crate::connection::stdb_intent::StdbIntent;
+
+        let mut app = bevy::app::App::new();
+        app.add_plugins(StdbPlugin::new(FakeConnectionDriver::default()).with_connect_on_startup());
+        app.insert_resource(bevy::time::Time::<()>::default());
+
+        app.update(); // Startup connects, then the lifecycle drains.
+
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+        assert_eq!(
+            *app.world().resource::<StdbIntent>(),
+            StdbIntent::Connected,
+            "connect-on-startup must set Connected intent, else auto-reconnect is never armed",
+        );
+    }
+
+    #[test]
+    fn reconnects_after_a_drop_when_connected_on_startup() {
+        use crate::{Backoff, Jitter, ReconnectPolicy, StdbPlugin};
+        use std::time::Duration;
+
+        let driver = FakeConnectionDriver::default();
+        let probe = driver.clone(); // retains the sink, to simulate an unsolicited drop
+        let mut app = bevy::app::App::new();
+        app.add_plugins(StdbPlugin::new(driver).with_connect_on_startup());
+        app.insert_resource(bevy::time::Time::<()>::default());
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_secs(1)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        // Startup connect.
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+
+        // Unsolicited drop (the real `on_disconnect` path).
+        probe.sink().disconnected().unwrap();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected
+        );
+
+        // Past the backoff: must reconnect — only happens if the intent was armed on startup.
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_millis(1100));
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Connected,
+            "a connection established on startup must auto-reconnect after a drop",
         );
     }
 }

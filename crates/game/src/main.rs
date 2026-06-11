@@ -16,11 +16,11 @@ fn main() {
             ..default()
         }))
         .add_plugins(
-            StdbPlugin::new(SdkConnectionDriver {
-                uri: "http://127.0.0.1:3000".try_into().unwrap(),
-                database_name: "monster-master".to_string(),
-                tick: DbConnection::frame_tick,
-            })
+            StdbPlugin::new(SdkConnectionDriver::new(
+                "http://127.0.0.1:3000",
+                "monster-master",
+                DbConnection::frame_tick,
+            ))
             .add_tables([stdb_table!(player => Player)])
             .with_connect_on_startup(),
         )

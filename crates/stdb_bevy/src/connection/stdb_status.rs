@@ -7,7 +7,7 @@ pub enum StdbStatus {
     Disconnected,
 }
 
-pub fn stdb_connected(status: Res<StdbStatus>) -> bool {
+pub fn is_stdb_connected(status: Res<StdbStatus>) -> bool {
     *status == StdbStatus::Connected
 }
 

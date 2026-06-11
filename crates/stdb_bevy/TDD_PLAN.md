@@ -169,20 +169,37 @@ a clean-slate sweep via a one-line `StdbDisconnected` observer if desired).
 
 ---
 
-## Phase E — Reconnect & token logic (pure logic, fakes)
+## Phase E — Reconnect & token logic (pure logic, fakes) — **DONE**
 
-### Slice 12 — backoff schedule
+### Slice 12 — backoff schedule — done
 - **Behavior:** the reconnect delay grows with attempt count up to a cap, and resets after a successful
   connect.
 - **You implement:** a pure `fn backoff(attempt: u32) -> Duration` (or small state struct).
 - **I test:** assert the sequence of delays and the reset-on-connect.
 
-### Slice 13 — token capture & reuse
-- **Behavior:** the token from a `Connected` signal is stored and handed to the next connection build;
-  dropped (back to anonymous) only on explicit reset, not across a reconnect.
-- **You implement:** token state + the "next build uses stored token" decision, behind a fake build fn.
-- **I test:** simulate Connected(token) → Disconnected → reconnect; assert the fake build received the
-  stored token.
+### Slice 13 — token capture & reuse — done
+- Implemented as **`StdbToken`** — a `Clone` handle over `Arc<Mutex<Option<String>>>`, usable as a
+  `Resource`, shared between the Game (seed from save / read to persist / `clear`) and the
+  `SdkConnectionDriver` (`with_token(get())` on build, `set` from `on_connect`). The shared `Arc` is
+  the bidirectional channel; cross-session persistence is enabled but left to the Game.
+- Two reconnect bugs found during manual verify, fixed with regression tests:
+  - `with_connect_on_startup` connected without triggering `StdbConnect`, so the intent stayed
+    `Disconnected` and auto-reconnect was never armed → now triggers `StdbConnect`.
+  - A failed reconnect build only logged, leaving status stuck at `Connecting` (loop stalled after
+    one attempt) → the adapter now pushes `ConnectionError`, re-arming the backoff loop.
+
+---
+
+## Phase F — Resync event (deferred)
+
+The gap left by cancelling Phase D: a row **deleted during an outage** is never signalled (the
+reconnect dump only re-inserts still-matching rows; an *updated* row repairs itself via the
+upsert). The fix is a Game-side **mark-and-sweep keyed on the subscription's `on_applied`** (the
+resync boundary). To make that turnkey, the Bridge should surface `on_applied` as a Bevy event
+(e.g. `StdbResynced` / `SubscriptionApplied`) the same way it bridges row callbacks — an SDK
+callback → `crossbeam` channel → drained message. Then a Game wires: mark all stale on
+`StdbConnected`, clear stale per upserted row, despawn the still-stale on the resync event.
+Deferred until after the currently-planned slices (see ADR 0002, "Known gap").
 
 ---
 
@@ -190,18 +207,18 @@ a clean-slate sweep via a one-line `StdbDisconnected` observer if desired).
 
 Not TDD'd — verified by hand once the engine is green:
 
-- [ ] SDK adapter: real `DbConnection` build with native-sync / wasm-`spawn_local(build().await)` split.
-- [ ] `frame_tick` pumped once per frame; messages/observers fire end-to-end.
-- [ ] Real `on_insert`/`on_update`/`on_delete`/`on_disconnect` push into the engine channels.
-- [ ] Auto-reconnect after a real socket drop; identity stable via in-memory token reuse.
-- [ ] `game` example compiles to native + wasm and shows online player count via the new API.
+- [x] SDK adapter: real `DbConnection` build with native-sync / wasm-`spawn_local(build().await)` split.
+- [x] `frame_tick` pumped once per frame; messages/observers fire end-to-end.
+- [x] Real `on_insert`/`on_delete`/`on_disconnect` push into the engine channels.
+- [x] Auto-reconnect after a real socket drop; identity stable via in-memory token reuse (`just dev::clients`).
+- [x] `game` compiles to native and shows online player count via the macro API. (wasm not re-checked this session.)
 - [ ] `Send + Sync` compile assertions for `StdbConnection<DbConnection>` on both targets.
 
 ---
 
-## Open interface questions to settle as we hit them
-- Exact sink/channel type names (`RowChannel`/`RowSink`/`LifecycleSink`) and whether sinks are returned
-  vs. stored in resources (currently: stored).
-- Whether `StdbStatus` gains an `Error` variant or connect-errors map to `Disconnected` (currently the
-  latter).
-- System ordering: a `StdbSet` so drains run before Game systems read messages within the same frame.
+## Settled interface questions
+- Sink/channel names (`RowChannel`/`RowSink`/`LifecycleChannel`/`LifecycleSink`) — stored in resources.
+- `StdbStatus` is `Connecting`/`Connected`/`Disconnected`; connect errors map to `Disconnected` and
+  also fire a separate `StdbConnectionError` event.
+- System ordering: `StdbSystemSet` (`LifecycleEvents → RowMessagesPush → Main`) so drains run before
+  Game systems read messages within the same frame.

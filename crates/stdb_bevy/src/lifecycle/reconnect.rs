@@ -350,4 +350,79 @@ mod tests {
             "explicit disconnect must suppress auto-reconnect",
         );
     }
+
+    /// A driver whose every connect *fails the build* (announces Connecting, then ConnectionError) —
+    /// mirroring the real adapter when the server is down. Counts attempts so the retry loop is
+    /// observable across repeated failures.
+    #[derive(bevy::ecs::resource::Resource, Clone, Default)]
+    struct FailingDriver {
+        attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl StdbConnectionDriver for FailingDriver {
+        type Conn = FakeConn;
+
+        fn connect(&self, sink: crate::LifecycleSink<FakeConn>) {
+            self.attempts
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            sink.connecting().unwrap();
+            sink.connection_error(
+                crate::lifecycle::lifecycle_events::ConnectionError::ConnectionRefused,
+            )
+            .unwrap();
+        }
+
+        fn tick(&self, _conn: &crate::StdbConnection<FakeConn>) {}
+
+        fn disconnect(
+            &self,
+            _conn: &crate::StdbConnection<FakeConn>,
+            sink: crate::LifecycleSink<FakeConn>,
+        ) {
+            sink.disconnected().unwrap();
+        }
+    }
+
+    /// A connect attempt that ends in `ConnectionError` must return status to `Disconnected` and
+    /// re-arm the backoff, so the engine keeps retrying until the server returns — not just once.
+    /// (The real adapter regression: a failed build that only logs leaves status stuck at
+    /// `Connecting`, stalling the loop after one attempt.)
+    #[test]
+    fn keeps_retrying_after_each_failed_connect() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+
+        let driver = FailingDriver::default();
+        let probe = driver.clone(); // shares the attempt counter
+        let mut app = test_app(driver);
+        app.insert_resource(ReconnectPolicy {
+            backoff: Backoff::Fixed(Duration::from_secs(1)),
+            jitter: Jitter(0.0),
+            max_retries: None,
+        });
+
+        // Initial attempt fails → ConnectionError → Disconnected (reconnect armed).
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        app.update();
+        assert_eq!(probe.attempts.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected,
+            "a failed connect must leave status Disconnected, not stuck Connecting",
+        );
+
+        // Each elapsed backoff window drives one more attempt.
+        for expected in 2..=4 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_millis(1100));
+            app.update();
+            app.update();
+            assert!(
+                probe.attempts.load(Ordering::Relaxed) >= expected,
+                "must keep retrying after repeated failures (expected >= {expected})",
+            );
+        }
+    }
 }
