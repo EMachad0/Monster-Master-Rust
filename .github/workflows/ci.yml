@@ -17,6 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The native `game` build pulls in Bevy with x11 + wayland, which need system dev libs the
+      # runner doesn't ship (else wayland-sys' build.rs panics on `pkg-config --libs wayland-client`).
+      - name: Install Bevy Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev
       # Installs just, trunk, and spacetimedb-cli from .mise/config.toml.
       # Rust comes from the runner's rustup, which reads rust-toolchain.toml.
       - uses: jdx/mise-action@v2

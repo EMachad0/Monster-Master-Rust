@@ -12,7 +12,10 @@ Three jobs:
 
 - **check** — `cargo fmt --check`, `cargo clippy` and `cargo test` over the workspace
   **excluding `stdb_module`**, then `cargo build -p stdb_module --target wasm32-unknown-unknown`
-  to confirm the Module compiles to wasm.
+  to confirm the Module compiles to wasm. Installs Bevy's Linux dev libs first
+  (`libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev`) — the native `game`
+  build links x11 + wayland, which `wayland-sys`/`alsa-sys`/etc. resolve via `pkg-config`. The
+  **web** job needs none of these (wasm uses webgl2, no native windowing libs).
 - **web** — `trunk build --release`, confirming the client compiles to wasm. Uses the committed
   `stdb_bindings`, so no SpacetimeDB server is needed.
 - **bindings** — runs `just stdb::generate` and fails if `crates/stdb_bindings` changes, i.e. the
