@@ -12,7 +12,10 @@ Three jobs:
 
 - **check** — `cargo fmt --check`, `cargo clippy` and `cargo test` over the workspace
   **excluding `stdb_module`**, then `cargo build -p stdb_module --target wasm32-unknown-unknown`
-  to confirm the Module compiles to wasm.
+  to confirm the Module compiles to wasm. Installs Bevy's Linux dev libs first
+  (`libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev`) — the native `game`
+  build links x11 + wayland, which `wayland-sys`/`alsa-sys`/etc. resolve via `pkg-config`. The
+  **web** job needs none of these (wasm uses webgl2, no native windowing libs).
 - **web** — `trunk build --release`, confirming the client compiles to wasm. Uses the committed
   `stdb_bindings`, so no SpacetimeDB server is needed.
 - **bindings** — runs `just stdb::generate` and fails if `crates/stdb_bindings` changes, i.e. the
@@ -45,9 +48,19 @@ separate `dtolnay/rust-toolchain` step; it would bypass the pin.
 runs the CLI (to detect drift) — and even that needs no server, since `spacetime generate` builds
 and inspects the Module locally.
 
+### 5. One run per ref; keep actions current
+
+Both workflows set `concurrency` with `cancel-in-progress: true` (keyed on the ref) so a new push
+supersedes the in-progress run — otherwise two runs race on the shared rust-cache key ("Unable to
+reserve cache"). Pin actions to their latest major tag (`actions/checkout@v6`, `jdx/mise-action@v4`,
+`Swatinem/rust-cache@v2`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`).
+
 ### 4. Cache Rust builds
 
-Keep `Swatinem/rust-cache@v2` in every job — Bevy is large and uncached CI is slow.
+Keep `Swatinem/rust-cache@v2` in every job — Bevy is large and uncached CI is slow. Each cache step
+sets `cache-on-failure: "true"` so even a red run saves `target/` (the default is `false`, which
+means iterating on a failing build never warms the cache — every re-run rebuilds Bevy cold). The
+first green run is still cold; subsequent runs reuse the cache.
 
 ## References
 

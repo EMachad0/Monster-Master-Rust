@@ -1,19 +1,10 @@
-use std::sync::mpsc::Sender;
-
 use bevy::prelude::*;
-use spacetimedb_sdk::{DbContext, Table};
-use stdb_bevy::{StdbConnection, StdbPlugin};
-use stdb_bindings::{DbConnection, PlayerTableAccess};
-
-// Baked in at build time (the `just` recipes load these from .env). Defaults target a local server.
-const SPACETIMEDB_URI: &str = match option_env!("SPACETIMEDB_URI") {
-    Some(v) => v,
-    None => "http://127.0.0.1:3000",
+use spacetimedb_sdk::DbContext;
+use stdb_bevy::{
+    RowDeleted, RowInserted, SdkConnectionDriver, StdbConnection, StdbPlugin, is_stdb_connected,
+    stdb_table,
 };
-const SPACETIMEDB_MODULE: &str = match option_env!("SPACETIMEDB_MODULE") {
-    Some(v) => v,
-    None => "monster-master",
-};
+use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
 
 fn main() {
     App::new()
@@ -24,9 +15,26 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(StdbPlugin { connect, tick })
+        .add_plugins(
+            StdbPlugin::new(SdkConnectionDriver::new(
+                "http://127.0.0.1:3000",
+                "monster-master",
+                DbConnection::frame_tick,
+            ))
+            .add_tables([stdb_table!(player => Player)])
+            .with_connect_on_startup(),
+        )
+        .init_resource::<OnlineCounter>()
         .add_systems(Startup, setup)
-        .add_systems(Update, report_players)
+        .add_systems(
+            Update,
+            (
+                report_players_on_player_inserted,
+                report_players_on_player_deleted,
+            )
+                .run_if(is_stdb_connected),
+        )
+        .add_observer(subscribe_to_players_on_connect)
         .run();
 }
 
@@ -34,55 +42,53 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-/// Builds and initiates the SpacetimeDB connection, delivering it through `tx`. `build()` is
-/// synchronous on native but async on wasm (connecting in the browser is async), so the two
-/// targets diverge here — the rest of the app is identical.
-fn connect(tx: Sender<DbConnection>) {
-    let builder = DbConnection::builder()
-        .with_uri(SPACETIMEDB_URI)
-        .with_database_name(SPACETIMEDB_MODULE)
-        .on_connect(|ctx, identity, _token| {
-            info!("connected to SpacetimeDB as {identity:?}");
-            ctx.subscription_builder()
-                .on_applied(|_ctx| info!("subscription applied"))
-                .on_error(|_ctx, err| error!("subscription error: {err}"))
-                .subscribe(["SELECT * FROM player"]);
-        })
-        .on_connect_error(|_ctx, err| error!("SpacetimeDB connect error: {err}"))
-        .on_disconnect(|_ctx, err| warn!("SpacetimeDB disconnected: {err:?}"));
-
-    #[cfg(not(target_arch = "wasm32"))]
-    match builder.build() {
-        Ok(conn) => {
-            let _ = tx.send(conn);
-        }
-        Err(err) => error!("SpacetimeDB build failed: {err}"),
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        match builder.build().await {
-            Ok(conn) => {
-                let _ = tx.send(conn);
-            }
-            Err(err) => error!("SpacetimeDB build failed: {err}"),
-        }
-    });
+fn subscribe_to_players_on_connect(
+    _: On<stdb_bevy::StdbConnected>,
+    conn: Res<StdbConnection<DbConnection>>,
+) {
+    conn.subscription_builder()
+        .on_applied(|_| info!("subscription applied"))
+        .on_error(|_, err| error!("subscription error: {err}"))
+        .subscribe(["SELECT * FROM player WHERE online = true"]);
 }
 
-/// Pumps the connection once per frame: applies queued messages and fires callbacks.
-fn tick(conn: &DbConnection) {
-    if let Err(err) = conn.frame_tick() {
-        error!("frame_tick failed: {err}");
+#[derive(Debug, Default, Resource)]
+pub struct OnlineCounter(pub i32);
+
+impl OnlineCounter {
+    pub fn inc(&mut self) {
+        self.0 += 1;
+    }
+
+    pub fn dec(&mut self) {
+        self.0 -= 1;
     }
 }
 
 /// The connection proof: log the online player count whenever it changes.
-fn report_players(conn: Option<NonSend<StdbConnection<DbConnection>>>, mut last: Local<i64>) {
-    let Some(conn) = conn else { return };
-    let online = conn.0.db().player().iter().filter(|p| p.online).count() as i64;
-    if online != *last {
-        *last = online;
-        info!("{online} player(s) online");
+fn report_players_on_player_inserted(
+    mut messages: MessageReader<RowInserted<Player>>,
+    mut counter: ResMut<OnlineCounter>,
+) {
+    if messages.is_empty() {
+        return;
     }
+    for _ in messages.read() {
+        counter.inc();
+    }
+    info!("{} player(s) online", counter.0);
+}
+
+/// The connection proof: log the online player count whenever it changes.
+fn report_players_on_player_deleted(
+    mut messages: MessageReader<RowDeleted<Player>>,
+    mut counter: ResMut<OnlineCounter>,
+) {
+    if messages.is_empty() {
+        return;
+    }
+    for _ in messages.read() {
+        counter.dec();
+    }
+    info!("{} player(s) online", counter.0);
 }

@@ -13,6 +13,9 @@ publish:
 generate:
     rm -rf crates/stdb_bindings/src/module_bindings
     {{ stdb }} generate --lang rust --out-dir crates/stdb_bindings/src/module_bindings --module-path crates/stdb_module --yes
+    # `spacetime generate`'s output isn't rustfmt-conformant; normalize it so the committed
+    # Bindings stay `cargo fmt --check`-clean and the CI drift check sees a stable result.
+    cargo fmt -p stdb_bindings
 
 [doc("Publish the Module, then regenerate Bindings")]
 setup: publish generate

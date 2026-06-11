@@ -6,7 +6,7 @@ members = ["crates/*"]
 default-members = ["crates/stdb_bevy", "crates/stdb_bindings", "crates/game"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "0.1.0"
 
 # Dependency versions are centralized here; member crates use `<dep>.workspace = true`.
@@ -14,13 +14,17 @@ version = "0.1.0"
 # latest, or `cargo add <crate>`. Hand-editing version strings invites mistakes.
 [workspace.dependencies]
 # --- external ---
-bevy = { version = "0.18.1", default-features = false }
+bevy = { version = "0.18.1", default-features = false, features = ["debug", "bevy_log"] }
 spacetimedb = "2.4"
 spacetimedb-sdk = "2.4"
 bevy_asset_loader = "0.26"
 getrandom = "0.4"
 log = "0.4"
 wasm-bindgen-futures = "0.4"
+crossbeam-channel = "0.5.15"
+thiserror = "2.0.18"
+rand = "0.10.1"
+http = "1.4.1"
 # --- internal ---
 stdb_bevy = { path = "crates/stdb_bevy" }
 stdb_bindings = { path = "crates/stdb_bindings" }

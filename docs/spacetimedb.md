@@ -41,10 +41,19 @@ commit the diff. Only `src/lib.rs` (the `pub mod module_bindings;` wrapper) is h
 
 ### 4. The Bridge stays module-agnostic
 
-`stdb_bevy` knows nothing about any Module. It stores the connection as a **`NonSend`** resource
-(the SDK's browser connection types are not `Send`) and pumps it once per frame. `frame_tick` is an
-inherent method on the *generated* `DbConnection`, so the Game passes `connect`/`tick` as `fn`
-pointers into `StdbPlugin`. Module-specific code (which tables, which reducers) lives in `game`.
+`stdb_bevy` knows nothing about any Module. It owns the connection behind a builder
+(`StdbPlugin::new(DbConnection::builder)…`), hides the native-sync / wasm-async `build()` split, and
+pumps the connection once per frame with `frame_tick` — no background thread, so one path drives both
+native and wasm. The connection is **`Send + Sync`** (the SDK confines the browser socket to a
+`spawn_local` task and keeps the handle behind `Arc<Mutex>` + `Send` callbacks), so it lives in a
+normal **`Res<StdbConnection<C>>`** — *not* a `NonSend` resource — and every Game system that calls a
+reducer or subscribes is an ordinary multi-threaded system. Lifecycle surfaces as **observer events**
+(`StdbConnected` / `StdbDisconnected` / `StdbConnectionError`); table changes as **buffered messages**
+(`RowInserted<T>` / `RowUpdated<T>` / `RowDeleted<T>`). The Game opts a table into that message stream
+with `stdb_tables! { player => Player }` and subscribes (in the `StdbConnected` observer) via
+`StdbConnection`'s `subscription_builder()`. Module-specific code (which tables, which reducers) lives
+in `game`. See ADR 0002 for why the connection is `Res` not `NonSend`, and why the Bridge does not
+`Box::leak` it.
 
 ### 5. Client connection + reads
 

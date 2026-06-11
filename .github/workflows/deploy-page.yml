@@ -19,14 +19,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       # Project Pages are served from /<repo>/, so the asset base path must match.
       # Uses the committed bindings — no SpacetimeDB server needed to build.
       - name: Build web client
         run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -38,4 +40,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
