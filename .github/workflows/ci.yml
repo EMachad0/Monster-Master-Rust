@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to the same ref cancels an in-progress run, so concurrent runs don't race on the
+# shared rust-cache key (and we don't waste minutes on superseded commits).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -16,7 +22,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # The native `game` build pulls in Bevy with x11 + wayland, which need system dev libs the
       # runner doesn't ship (else wayland-sys' build.rs panics on `pkg-config --libs wayland-client`).
       - name: Install Bevy Linux dependencies
@@ -25,26 +31,32 @@ jobs:
           sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev
       # Installs just, trunk, and spacetimedb-cli from .mise/config.toml.
       # Rust comes from the runner's rustup, which reads rust-toolchain.toml.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: just check::all
 
   # Confirm the web client compiles to wasm (uses the committed bindings; no server needed).
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: just dev::build
 
   # Fail if the committed bindings are stale relative to the Module.
   bindings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - name: Regenerate bindings and check they are committed
         run: |
           just stdb::generate
