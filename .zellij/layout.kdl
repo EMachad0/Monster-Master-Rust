@@ -16,7 +16,10 @@ layout {
                 args "-lic" "docker compose up"
             }
             pane focus=true command="$SHELL" {
-                args "-lic" "claude"
+                args "-lic" "pi"
+            }
+            pane focus=true command="$SHELL" {
+                args "-lic" "bacon clippy-all"
             }
         }
     }
