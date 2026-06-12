@@ -38,17 +38,58 @@ Glossary of these terms lives in `../CONTEXT.md`.
 
 ## Required Reading
 
-Before starting work, read any docs that match the task at hand:
+These docs are **not** optional background. When a task matches one, you **MUST read the whole doc
+before writing any code** — they encode conventions you are expected to follow, not summarize.
 
-- Before working on SpacetimeDB (the Module, reducers, the Bridge, bindings, or the client
+- Before writing or changing **tests**, or designing code that must be testable: read `docs/testing.md`
+- Before working on **SpacetimeDB** (the Module, reducers, the Bridge, bindings, or the client
   connection): read `docs/spacetimedb.md`
-- Before creating or modifying CI/CD workflows: read `docs/cicd.md`
+- Before creating or modifying **CI/CD** workflows: read `docs/cicd.md`
+
+## Skills
+
+Invoke these with `/<name>`. When a request matches one, use it rather than improvising.
+
+- **`dev-tdd`** — collaborative, pair-style TDD: you write the tests, the developer writes the
+  implementation, moving one vertical slice at a time. Use when building a feature or fixing a bug
+  together, test-first.
+- **`grill-with-docs`** — relentless interview that stress-tests a plan against the project's
+  language and documented decisions. Use before building, to settle a fuzzy design.
+- **`handoff`** — compact the current conversation into a handoff document for another agent. Use
+  when wrapping up or passing work along.
 
 ## Shell Rules
 
 - **Never use `find -exec`**. It triggers a permission prompt that cannot be auto-allowed. Use one of these alternatives:
   - `find ... -print0 | xargs -0 command` (pipe to xargs)
   - `fd` (already in the allowed list, modern alternative to find)
+
+## Comment Rules
+
+When writing new comments:
+
+- Sound **professional** and follow the existing codebase's comment style.
+- Keep them **concise**.
+- Comment **what is not easily inferred from the code** — the *why*, a non-obvious constraint, a
+  subtle edge case — not what the code already says plainly.
+- **Never reference untracked files** (e.g. ADRs, `CONTEXT.md`). They live outside the repo's
+  working tree, so such references dangle for anyone without the parent layout. (This applies to
+  *code comments* only — docs may describe those decisions in their own words.)
+
+## Always Check Your Work
+
+- After writing or changing any code, run **`just check::all`** (fmt + clippy + test + Module wasm
+  build) and confirm it passes. It is how you verify the code matches your intent — do not consider
+  work done until it is green.
+
+## Git Rules
+
+- **Never commit your own code before the developer has reviewed it.** Present the work for review
+  first; commit only after it has been reviewed (the `dev-tdd` per-slice commit follows this — the
+  developer's review is the gate).
+- **Check your work before committing** — run `just check::all` and confirm it passes first.
+- **Rebase** → always `git fetch` first, then rebase.
+- **Open a PR** → `git fetch` → rebase → stage → commit → push → create the PR, in that order.
 
 ## Agent Rules
 
