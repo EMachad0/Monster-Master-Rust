@@ -19,6 +19,7 @@ use crate::subscription::subscription_channel::{
 };
 use crate::subscription::subscription_components::{
     reset_subscriptions_on_stdbdisconnected, subscribe_pending_subscriptions,
+    unsubscribe_on_subscription_despawn,
 };
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
@@ -34,7 +35,9 @@ pub use crate::row::row_forwarder::RowForwarder;
 pub use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::stdb_drivers::{sdk_driver::SdkDriver, stdb_driver::StdbConnectionDriver};
-pub use crate::subscription::stdb_subscription_driver::{NoSubscriptions, StdbSubscriptionDriver};
+pub use crate::subscription::stdb_subscription_driver::{
+    NoSubscriptions, StdbSubscriptionDriver, SubscriptionHandle,
+};
 pub use crate::subscription::subscription_components::{
     AppliedSubscription, FailedSubscription, IssuedSubscription, Subscription,
 };
@@ -139,6 +142,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         app.init_resource::<ReconnectState>();
 
         app.add_observer(reset_reconnectstate_on_stdbdisconnected);
+        app.add_observer(unsubscribe_on_subscription_despawn);
 
         app.add_systems(
             bevy::app::Update,

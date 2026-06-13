@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::{
-    StdbConnection, StdbDisconnected, StdbSubscriptionDriver,
+    StdbConnection, StdbDisconnected, StdbSubscriptionDriver, SubscriptionHandle,
     subscription::subscription_channel::SubscriptionChannel,
 };
 
@@ -19,7 +19,17 @@ impl Subscription {
 }
 
 #[derive(Component)]
-pub struct IssuedSubscription;
+pub struct IssuedSubscription {
+    handle: Box<dyn SubscriptionHandle + Send + Sync>,
+}
+
+impl IssuedSubscription {
+    pub fn new(handle: impl SubscriptionHandle + 'static) -> Self {
+        Self {
+            handle: Box::new(handle),
+        }
+    }
+}
 
 #[derive(Component)]
 pub struct AppliedSubscription;
@@ -35,8 +45,10 @@ pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     mut commands: Commands,
 ) {
     for (entity, subscription) in subscriptions.iter() {
-        driver.subscribe(&conn, entity, subscription, channel.sink());
-        commands.entity(entity).insert(IssuedSubscription);
+        let handle = driver.subscribe(&conn, entity, subscription, channel.sink());
+        commands
+            .entity(entity)
+            .insert(IssuedSubscription::new(handle));
     }
 }
 
@@ -52,12 +64,24 @@ pub(crate) fn reset_subscriptions_on_stdbdisconnected(
     }
 }
 
+pub(crate) fn unsubscribe_on_subscription_despawn(
+    observer: On<Remove, Subscription>,
+    subscriptions: Query<&IssuedSubscription, With<Subscription>>,
+) {
+    let entity = observer.entity;
+    if let Ok(issued) = subscriptions.get(entity) {
+        issued.handle.unsubscribe().unwrap_or_else(|err| {
+            bevy::log::error!("error while unsubscribing {}", err);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-    use crate::test_support::{FakeConn, FakeDriver};
+    use crate::test_support::{FakeConn, FakeDriver, FakeHandle};
     use crate::{StdbConnect, StdbDisconnected, StdbPlugin};
 
     /// A test `App` with both the connection and subscription layers installed (the connecting
@@ -172,7 +196,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Subscription::table("a"),
-                IssuedSubscription,
+                IssuedSubscription::new(FakeHandle::default()),
                 AppliedSubscription,
             ))
             .id();
@@ -180,7 +204,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Subscription::table("b"),
-                IssuedSubscription,
+                IssuedSubscription::new(FakeHandle::default()),
                 FailedSubscription,
             ))
             .id();
@@ -236,6 +260,76 @@ mod tests {
         assert!(
             app.world().get::<AppliedSubscription>(sub).is_some(),
             "the sub must be re-issued and re-applied on the reconnected socket",
+        );
+    }
+
+    /// A test `App` with the subscription layer installed, returning a probe over the **subscription**
+    /// driver so a test can read `unsubscribes()`. (`app_with_subscriptions` builds two anonymous
+    /// fakes; here we keep a handle on the one whose `subscribe`/unsubscribe-token runs.)
+    fn app_with_sub_probe() -> (App, FakeDriver) {
+        let driver = FakeDriver::default();
+        let probe = driver.clone();
+        let mut app = App::new();
+        app.add_plugins(StdbPlugin::new(FakeDriver::default()).with_subscriptions(driver));
+        app.insert_resource(Time::<()>::default());
+        (app, probe)
+    }
+
+    #[test]
+    fn despawning_an_issued_subscription_unsubscribes() {
+        let (mut app, probe) = app_with_sub_probe();
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        let sub = app.world_mut().spawn(Subscription::table("player")).id();
+        app.update(); // reconcile issues -> IssuedSubscription(token)
+
+        app.world_mut().entity_mut(sub).despawn();
+
+        assert_eq!(
+            probe.unsubscribes(),
+            1,
+            "despawning an issued subscription must call its unsubscribe token exactly once",
+        );
+    }
+
+    #[test]
+    fn despawning_a_disconnected_subscription_does_not_unsubscribe() {
+        let (mut app, probe) = app_with_sub_probe();
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+        let sub = app.world_mut().spawn(Subscription::table("player")).id();
+        app.update(); // issued
+
+        // Drop: the strip removes IssuedSubscription, dropping the token uncalled.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.disconnected().unwrap();
+        app.update();
+
+        app.world_mut().entity_mut(sub).despawn();
+
+        assert_eq!(
+            probe.unsubscribes(),
+            0,
+            "after a drop the handle is dead, so despawning must not unsubscribe it",
+        );
+    }
+
+    #[test]
+    fn despawning_a_never_issued_subscription_does_not_unsubscribe() {
+        let (mut app, probe) = app_with_sub_probe();
+
+        // Spawned while disconnected: the reconcile never runs, so no token is ever stored.
+        let sub = app.world_mut().spawn(Subscription::table("player")).id();
+        app.update();
+
+        app.world_mut().entity_mut(sub).despawn();
+
+        assert_eq!(
+            probe.unsubscribes(),
+            0,
+            "despawning a never-issued subscription must not unsubscribe",
         );
     }
 }

@@ -12,9 +12,9 @@ use spacetimedb_sdk::{
     TableWithPrimaryKey as SdkTableWithPrimaryKey,
 };
 
-use crate::StdbBevyError;
 use crate::StdbSubscriptionDriver;
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
+use crate::{StdbBevyError, SubscriptionHandle};
 
 /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
 #[derive(Clone, Default)]
@@ -26,9 +26,15 @@ pub struct FakeConn;
 #[derive(Resource, Clone, Default)]
 pub struct FakeDriver {
     sink: Arc<Mutex<Option<LifecycleSink<FakeConn>>>>,
+    unsubscribes: Arc<AtomicUsize>,
 }
 
 impl FakeDriver {
+    /// How many times a handle issued by this driver has been unsubscribed.
+    pub fn unsubscribes(&self) -> usize {
+        self.unsubscribes.load(Ordering::Relaxed)
+    }
+
     /// The sink handed to the most recent `connect`, for simulating a drop/error after a connect.
     pub fn sink(&self) -> LifecycleSink<FakeConn> {
         self.sink
@@ -56,8 +62,21 @@ impl StdbConnectionDriver for FakeDriver {
     }
 }
 
+#[derive(Default)]
+pub struct FakeHandle {
+    unsubscribes: Arc<AtomicUsize>,
+}
+
+impl SubscriptionHandle for FakeHandle {
+    fn unsubscribe(&self) -> Result<(), StdbBevyError> {
+        self.unsubscribes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 impl StdbSubscriptionDriver for FakeDriver {
     type Conn = FakeConn;
+    type Handle = FakeHandle;
 
     fn subscribe(
         &self,
@@ -65,8 +84,11 @@ impl StdbSubscriptionDriver for FakeDriver {
         entity: bevy::ecs::entity::Entity,
         _subscription: &crate::Subscription,
         sink: crate::subscription::subscription_channel::SubscriptionSink,
-    ) {
+    ) -> Self::Handle {
         sink.applied(entity);
+        FakeHandle {
+            unsubscribes: self.unsubscribes.clone(),
+        }
     }
 }
 

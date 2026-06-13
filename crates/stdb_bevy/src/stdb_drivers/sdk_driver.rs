@@ -1,9 +1,14 @@
 use std::fmt::Debug;
 
 use bevy::ecs::{entity::Entity, resource::Resource};
-use spacetimedb_sdk::{DbConnectionBuilder, DbContext};
+use spacetimedb_sdk::{
+    DbConnectionBuilder, DbContext, Result as SdkResult, SubscriptionHandle as SdkHandle,
+};
 
-use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbSubscriptionDriver, StdbToken};
+use crate::{
+    StdbBevyError, StdbConn, StdbConnectionDriver, StdbSubscriptionDriver, StdbToken,
+    SubscriptionHandle,
+};
 
 pub use spacetimedb_sdk::__codegen::{
     DbConnection as SdkDbConnection, SpacetimeModule as SdkSpacetimeModule,
@@ -136,14 +141,26 @@ where
     }
 }
 
+pub struct SdkSubscriptionHandle {
+    disconnect: Box<dyn Fn() -> SdkResult<()> + Sync + Send>,
+}
+
+impl SubscriptionHandle for SdkSubscriptionHandle {
+    fn unsubscribe(&self) -> Result<(), StdbBevyError> {
+        (self.disconnect)().map_err(StdbBevyError::from)
+    }
+}
+
 impl<M, C> StdbSubscriptionDriver for SdkDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
     C: SdkDbConnection<Module = M>
         + DbContext<SubscriptionBuilder = SdkSubscriptionBuilder<M>>
         + StdbConn,
+    M::SubscriptionHandle: Send + Sync,
 {
     type Conn = C;
+    type Handle = SdkSubscriptionHandle;
 
     fn subscribe(
         &self,
@@ -151,8 +168,8 @@ where
         entity: Entity,
         subscription: &crate::subscription::subscription_components::Subscription,
         sink: crate::SubscriptionSink,
-    ) {
-        let _handle = conn
+    ) -> Self::Handle {
+        let sdk_handle = conn
             .subscription_builder()
             .on_applied({
                 bevy::log::info!("Subscription applied {:?}", subscription.queries());
@@ -167,6 +184,10 @@ where
                 }
             })
             .subscribe(subscription.queries());
+
+        SdkSubscriptionHandle {
+            disconnect: Box::new(move || sdk_handle.clone().unsubscribe()),
+        }
     }
 }
 

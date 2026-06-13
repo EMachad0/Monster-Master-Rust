@@ -1,11 +1,17 @@
 use bevy::ecs::{entity::Entity, resource::Resource};
 
 use crate::{
-    StdbConn, StdbConnection, Subscription, subscription::subscription_channel::SubscriptionSink,
+    StdbBevyError, StdbConn, StdbConnection, Subscription,
+    subscription::subscription_channel::SubscriptionSink,
 };
+
+pub trait SubscriptionHandle: Send + Sync {
+    fn unsubscribe(&self) -> Result<(), StdbBevyError>;
+}
 
 pub trait StdbSubscriptionDriver: Clone + Resource {
     type Conn: StdbConn;
+    type Handle: SubscriptionHandle;
 
     fn subscribe(
         &self,
@@ -13,7 +19,7 @@ pub trait StdbSubscriptionDriver: Clone + Resource {
         entity: Entity,
         subscription: &Subscription,
         sink: SubscriptionSink,
-    );
+    ) -> Self::Handle;
 }
 
 pub struct NoSubscriptions;
