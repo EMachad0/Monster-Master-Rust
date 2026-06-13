@@ -9,6 +9,14 @@ use crate::{
 pub struct Subscription(Box<[String]>);
 
 impl Subscription {
+    pub fn new(queries: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self(queries.into_iter().map(|q| q.into()).collect())
+    }
+
+    pub fn query(query: impl Into<String>) -> Self {
+        Self(Box::new([query.into()]))
+    }
+
     pub fn table(table: impl Into<String>) -> Self {
         Self(Box::new([format!("SELECT * FROM {}", table.into())]))
     }
@@ -119,6 +127,28 @@ mod tests {
             sub.queries(),
             ["SELECT * FROM player"],
             "table(name) is sugar for a one-query set selecting every row of that table",
+        );
+    }
+
+    #[test]
+    fn new_constructor_stores_the_query_set() {
+        let sub = Subscription::new(["SELECT * FROM player", "SELECT * FROM monster"]);
+
+        assert_eq!(
+            sub.queries(),
+            ["SELECT * FROM player", "SELECT * FROM monster"],
+            "new keeps the whole query set (one atomic subscribe) in declared order",
+        );
+    }
+
+    #[test]
+    fn query_constructor_builds_a_single_query_set() {
+        let sub = Subscription::query("SELECT * FROM player WHERE online = true");
+
+        assert_eq!(
+            sub.queries(),
+            ["SELECT * FROM player WHERE online = true"],
+            "query is sugar for a one-element set carrying the given SQL verbatim",
         );
     }
 
