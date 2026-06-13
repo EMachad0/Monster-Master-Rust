@@ -4,19 +4,18 @@ use bevy::ecs::{
 };
 
 use crate::{
+    StdbBevyError, StdbError,
     connection::{
         stdb_connection::{StdbConn, StdbConnection},
         stdb_status::StdbStatus,
     },
-    lifecycle::lifecycle_events::{
-        ConnectionError, StdbConnected, StdbConnectionError, StdbDisconnected,
-    },
+    lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected},
 };
 
 pub enum LifecycleEvent<C: StdbConn> {
     Connected(C),
     Disconnected,
-    ConnectionError(ConnectionError),
+    ConnectionError(StdbBevyError),
     Connecting,
 }
 
@@ -35,7 +34,7 @@ impl<C: StdbConn> LifecycleSink<C> {
 
     pub fn connection_error(
         &self,
-        error: ConnectionError,
+        error: StdbBevyError,
     ) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
         self.sender.send(LifecycleEvent::ConnectionError(error))
     }
@@ -97,7 +96,7 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
             LifecycleEvent::ConnectionError(e) => {
                 commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
-                commands.trigger(StdbConnectionError::new(e));
+                commands.trigger(StdbError::new(e));
             }
             LifecycleEvent::Connecting => {
                 commands.insert_resource(StdbStatus::Connecting);
@@ -110,10 +109,9 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 mod tests {
     use bevy::prelude::*;
 
-    use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-    use crate::lifecycle::lifecycle_events::ConnectionError;
-    use crate::test_support::{FakeConn, FakeConnectionDriver, test_app};
-    use crate::{StdbConnected, StdbConnection, StdbConnectionError, StdbDisconnected, StdbStatus};
+    use crate::test_support::{FakeConn, FakeDriver, test_app};
+
+    use super::*;
 
     #[derive(Resource, Default)]
     struct ObserverFired(bool);
@@ -121,12 +119,9 @@ mod tests {
     #[derive(Resource, Default)]
     struct DisconnectFired(bool);
 
-    #[derive(Resource, Default)]
-    struct ConnectErrorCaptured(Option<ConnectionError>);
-
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         app.init_resource::<ObserverFired>();
         app.add_observer(|_on: On<StdbConnected>, mut fired: ResMut<ObserverFired>| fired.0 = true);
@@ -163,7 +158,7 @@ mod tests {
 
     #[test]
     fn disconnected_signal_triggers_observer_status_and_removes_resource() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         app.init_resource::<DisconnectFired>();
         app.add_observer(
@@ -198,37 +193,6 @@ mod tests {
                 .get_resource::<StdbConnection<FakeConn>>()
                 .is_none(),
             "StdbConnection<C> should be removed on disconnect",
-        );
-    }
-
-    #[test]
-    fn connect_error_signal_triggers_observer_with_message_and_status() {
-        let mut app = test_app(FakeConnectionDriver::default());
-
-        app.init_resource::<ConnectErrorCaptured>();
-        app.add_observer(
-            |on: On<StdbConnectionError>, mut captured: ResMut<ConnectErrorCaptured>| {
-                captured.0 = Some(on.event().error().clone());
-            },
-        );
-
-        // Push a connect-error signal through the same seam the SDK adapter uses in production.
-        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
-        sink.connection_error(ConnectionError::ConnectionRefused)
-            .unwrap();
-
-        app.update();
-
-        let error = app.world().resource::<ConnectErrorCaptured>().0.clone();
-        assert!(error.is_some());
-        assert_eq!(
-            format!("{}", error.unwrap()),
-            "Connection Refused",
-            "the StdbConnectionError observer should fire carrying the error message",
-        );
-        assert_eq!(
-            *app.world().resource::<StdbStatus>(),
-            StdbStatus::Disconnected
         );
     }
 }

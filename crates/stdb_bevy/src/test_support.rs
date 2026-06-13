@@ -12,7 +12,8 @@ use spacetimedb_sdk::{
     TableWithPrimaryKey as SdkTableWithPrimaryKey,
 };
 
-use crate::lifecycle::lifecycle_events::ConnectionError;
+use crate::StdbBevyError;
+use crate::StdbSubscriptionDriver;
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
 
 /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
@@ -23,11 +24,11 @@ pub struct FakeConn;
 /// sink it was handed, so a test can later push an unsolicited drop or error through the public
 /// `LifecycleSink`.
 #[derive(Resource, Clone, Default)]
-pub struct FakeConnectionDriver {
+pub struct FakeDriver {
     sink: Arc<Mutex<Option<LifecycleSink<FakeConn>>>>,
 }
 
-impl FakeConnectionDriver {
+impl FakeDriver {
     /// The sink handed to the most recent `connect`, for simulating a drop/error after a connect.
     pub fn sink(&self) -> LifecycleSink<FakeConn> {
         self.sink
@@ -38,7 +39,7 @@ impl FakeConnectionDriver {
     }
 }
 
-impl StdbConnectionDriver for FakeConnectionDriver {
+impl StdbConnectionDriver for FakeDriver {
     type Conn = FakeConn;
 
     fn connect(&self, sink: LifecycleSink<FakeConn>) {
@@ -52,6 +53,20 @@ impl StdbConnectionDriver for FakeConnectionDriver {
 
     fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
         sink.disconnected().unwrap();
+    }
+}
+
+impl StdbSubscriptionDriver for FakeDriver {
+    type Conn = FakeConn;
+
+    fn subscribe(
+        &self,
+        _conn: &StdbConnection<Self::Conn>,
+        entity: bevy::ecs::entity::Entity,
+        _subscription: &crate::Subscription,
+        sink: crate::subscription::subscription_channel::SubscriptionSink,
+    ) {
+        sink.applied(entity);
     }
 }
 
@@ -88,7 +103,7 @@ impl DeferredDriver {
     /// naming the internal `ConnectionError`).
     pub fn deliver_error(&self) {
         self.take_parked_sink()
-            .connection_error(ConnectionError::ConnectionRefused)
+            .connection_error(StdbBevyError::ConnectionRefused)
             .unwrap();
     }
 }
@@ -102,11 +117,11 @@ impl StdbConnectionDriver for DeferredDriver {
         *self.parked_sink.lock().unwrap() = Some(sink); // parked: not connected yet
     }
 
-    fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
-
     fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
         sink.disconnected().unwrap();
     }
+
+    fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
 }
 
 /// A fake SDK table handle that delivers its canned rows the instant a callback is registered, so a
@@ -182,11 +197,11 @@ impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
         sink.connected(self.conn.clone()).unwrap();
     }
 
-    fn tick(&self, _conn: &StdbConnection<C>) {}
-
     fn disconnect(&self, _conn: &StdbConnection<C>, sink: LifecycleSink<C>) {
         sink.disconnected().unwrap();
     }
+
+    fn tick(&self, _conn: &StdbConnection<C>) {}
 }
 
 /// A fake connection that satisfies the SDK's [`DbContext`] so the `stdb_table!` macro's

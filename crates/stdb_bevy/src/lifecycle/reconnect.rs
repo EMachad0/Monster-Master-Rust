@@ -136,7 +136,7 @@ mod tests {
         StdbStatus,
         connection::connection_events::{StdbConnect, StdbDisconnect},
         lifecycle::lifecycle_channel::LifecycleChannel,
-        test_support::{FakeConn, FakeConnectionDriver, test_app},
+        test_support::{FakeConn, FakeDriver, test_app},
     };
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
     fn reconnect_system_reconnects_after_a_drop_once_backoff_elapses() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_secs(1)),
             jitter: Jitter(0.0),
@@ -320,7 +320,7 @@ mod tests {
     fn reconnect_system_does_not_reconnect_after_explicit_disconnect() {
         use std::time::Duration;
 
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_millis(1)),
             jitter: Jitter(0.0),
@@ -366,13 +366,9 @@ mod tests {
             self.attempts
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             sink.connecting().unwrap();
-            sink.connection_error(
-                crate::lifecycle::lifecycle_events::ConnectionError::ConnectionRefused,
-            )
-            .unwrap();
+            sink.connection_error(crate::StdbBevyError::ConnectionRefused)
+                .unwrap();
         }
-
-        fn tick(&self, _conn: &crate::StdbConnection<FakeConn>) {}
 
         fn disconnect(
             &self,
@@ -381,6 +377,8 @@ mod tests {
         ) {
             sink.disconnected().unwrap();
         }
+
+        fn tick(&self, _conn: &crate::StdbConnection<FakeConn>) {}
     }
 
     /// A connect attempt that ends in `ConnectionError` must return status to `Disconnected` and

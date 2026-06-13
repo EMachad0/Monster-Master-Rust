@@ -1,18 +1,17 @@
 use std::fmt::Debug;
 
-use bevy::ecs::resource::Resource;
+use bevy::ecs::{entity::Entity, resource::Resource};
 use spacetimedb_sdk::{DbConnectionBuilder, DbContext};
 
-use crate::{
-    StdbConn, StdbConnectionDriver, StdbToken, lifecycle::lifecycle_events::ConnectionError,
-};
+use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbSubscriptionDriver, StdbToken};
 
 pub use spacetimedb_sdk::__codegen::{
     DbConnection as SdkDbConnection, SpacetimeModule as SdkSpacetimeModule,
+    SubscriptionBuilder as SdkSubscriptionBuilder,
 };
 
 #[derive(Resource)]
-pub struct SdkConnectionDriver<M, C>
+pub struct SdkDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
     C: SdkDbConnection<Module = M>,
@@ -23,7 +22,7 @@ where
     pub token: StdbToken,
 }
 
-impl<M, C> SdkConnectionDriver<M, C>
+impl<M, C> SdkDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
     C: SdkDbConnection<Module = M>,
@@ -51,10 +50,10 @@ where
     }
 }
 
-impl<M, C> StdbConnectionDriver for SdkConnectionDriver<M, C>
+impl<M, C> StdbConnectionDriver for SdkDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
-    C: SdkDbConnection<Module = M> + StdbConn + DbContext,
+    C: SdkDbConnection<Module = M> + DbContext + StdbConn,
 {
     type Conn = C;
 
@@ -87,7 +86,7 @@ where
                 let sink = sink.clone();
                 move |_error_ctx, error| {
                     bevy::log::error!("Connection Error {}", error);
-                    sink.connection_error(ConnectionError::from(error))
+                    sink.connection_error(StdbBevyError::from(error))
                         .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
                 }
             });
@@ -100,7 +99,7 @@ where
             }
             Err(err) => {
                 bevy::log::error!("SpacetimeDB build failed: {err}");
-                sink.connection_error(ConnectionError::from(err))
+                sink.connection_error(StdbBevyError::from(err))
                     .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
             }
         }
@@ -114,7 +113,7 @@ where
                 }
                 Err(err) => {
                     bevy::log::error!("SpacetimeDB build failed: {err}");
-                    sink.connection_error(ConnectionError::from(err))
+                    sink.connection_error(StdbBevyError::from(err))
                         .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
                 }
             }
@@ -137,7 +136,41 @@ where
     }
 }
 
-impl<C, M> Clone for SdkConnectionDriver<M, C>
+impl<M, C> StdbSubscriptionDriver for SdkDriver<M, C>
+where
+    M: SdkSpacetimeModule<DbConnection = C>,
+    C: SdkDbConnection<Module = M>
+        + DbContext<SubscriptionBuilder = SdkSubscriptionBuilder<M>>
+        + StdbConn,
+{
+    type Conn = C;
+
+    fn subscribe(
+        &self,
+        conn: &crate::StdbConnection<Self::Conn>,
+        entity: Entity,
+        subscription: &crate::subscription::subscription_components::Subscription,
+        sink: crate::SubscriptionSink,
+    ) {
+        let _handle = conn
+            .subscription_builder()
+            .on_applied({
+                bevy::log::info!("Subscription applied {:?}", subscription.queries());
+                let sink = sink.clone();
+                move |_ctx| sink.applied(entity)
+            })
+            .on_error({
+                let sink = sink.clone();
+                move |_ctx, err| {
+                    bevy::log::error!("SpacetimeDB build failed: {err}");
+                    sink.error(entity, StdbBevyError::from(err));
+                }
+            })
+            .subscribe(subscription.queries());
+    }
+}
+
+impl<C, M> Clone for SdkDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
     C: SdkDbConnection<Module = M>,

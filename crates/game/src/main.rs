@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use spacetimedb_sdk::DbContext;
 use stdb_bevy::{
-    RowDeleted, RowInserted, SdkConnectionDriver, StdbConnection, StdbPlugin, is_stdb_connected,
-    stdb_table,
+    RowDeleted, RowInserted, SdkDriver, StdbConnection, StdbPlugin, is_stdb_connected, stdb_table,
 };
 use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
 
@@ -16,7 +15,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(
-            StdbPlugin::new(SdkConnectionDriver::new(
+            StdbPlugin::new(SdkDriver::new(
                 "http://127.0.0.1:3000",
                 "monster-master",
                 DbConnection::frame_tick,
