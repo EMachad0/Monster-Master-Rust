@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
 use crate::{
-    StdbConnection, StdbSubscriptionDriver, subscription::subscription_channel::SubscriptionChannel,
+    StdbConnection, StdbDisconnected, StdbSubscriptionDriver,
+    subscription::subscription_channel::SubscriptionChannel,
 };
 
 #[derive(Debug, Default, Component)]
@@ -18,18 +19,18 @@ impl Subscription {
 }
 
 #[derive(Component)]
+pub struct IssuedSubscription;
+
+#[derive(Component)]
 pub struct AppliedSubscription;
 
 #[derive(Component)]
 pub struct FailedSubscription;
 
-#[derive(Component)]
-pub struct IssuedSubscription;
-
-pub fn subscribe_pending_subscriptions<Cd: StdbSubscriptionDriver>(
+pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     subscriptions: Query<(Entity, &Subscription), Without<IssuedSubscription>>,
-    driver: Res<Cd>,
-    conn: Res<StdbConnection<Cd::Conn>>,
+    driver: Res<Sd>,
+    conn: Res<StdbConnection<Sd::Conn>>,
     channel: Res<SubscriptionChannel>,
     mut commands: Commands,
 ) {
@@ -39,12 +40,25 @@ pub fn subscribe_pending_subscriptions<Cd: StdbSubscriptionDriver>(
     }
 }
 
+pub(crate) fn reset_subscriptions_on_stdbdisconnected(
+    _: On<StdbDisconnected>,
+    subscriptions: Query<Entity, With<Subscription>>,
+    mut commands: Commands,
+) {
+    for entity in subscriptions.iter() {
+        commands
+            .entity(entity)
+            .remove::<(IssuedSubscription, AppliedSubscription, FailedSubscription)>();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::test_support::FakeDriver;
-    use crate::{StdbConnect, StdbPlugin};
+    use crate::lifecycle::lifecycle_channel::LifecycleChannel;
+    use crate::test_support::{FakeConn, FakeDriver};
+    use crate::{StdbConnect, StdbDisconnected, StdbPlugin};
 
     /// A test `App` with both the connection and subscription layers installed (the connecting
     /// fake doubles as the subscription driver). Connection-only tests keep using `test_app`.
@@ -146,6 +160,82 @@ mod tests {
             pending.iter(app.world()).count(),
             1,
             "the subscription stays pending until a connection exists",
+        );
+    }
+
+    #[test]
+    fn stdb_disconnected_resets_every_subscription_marker() {
+        let mut app = app_with_subscriptions();
+
+        // Two subs that were issued + resolved on the (now dropping) connection.
+        let applied = app
+            .world_mut()
+            .spawn((
+                Subscription::table("a"),
+                IssuedSubscription,
+                AppliedSubscription,
+            ))
+            .id();
+        let failed = app
+            .world_mut()
+            .spawn((
+                Subscription::table("b"),
+                IssuedSubscription,
+                FailedSubscription,
+            ))
+            .id();
+
+        app.world_mut().trigger(StdbDisconnected);
+        app.update();
+
+        for entity in [applied, failed] {
+            assert!(
+                app.world().get::<IssuedSubscription>(entity).is_none()
+                    && app.world().get::<AppliedSubscription>(entity).is_none()
+                    && app.world().get::<FailedSubscription>(entity).is_none(),
+                "a disconnect must drop every bridge marker so the sub is pending again",
+            );
+            assert!(
+                app.world().get::<Subscription>(entity).is_some(),
+                "the durable Subscription query must survive a disconnect",
+            );
+        }
+    }
+
+    #[test]
+    fn a_subscription_is_reissued_after_a_reconnect() {
+        let mut app = app_with_subscriptions();
+
+        app.world_mut().trigger(StdbConnect);
+        app.update();
+
+        let sub = app.world_mut().spawn(Subscription::table("player")).id();
+        app.update(); // reconcile issues
+        app.update(); // drain applies
+        assert!(
+            app.world().get::<AppliedSubscription>(sub).is_some(),
+            "precondition: the sub applied on the first connection",
+        );
+
+        // Drop the connection (no Time advance, so auto-reconnect stays dormant).
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.disconnected().unwrap();
+        app.update();
+        assert!(
+            app.world().get::<AppliedSubscription>(sub).is_none()
+                && app.world().get::<IssuedSubscription>(sub).is_none(),
+            "a drop must reset the sub to pending — markers cleared, not left stale",
+        );
+
+        // Reconnect: the reconcile must re-issue the pending sub on the fresh connection.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update(); // connect lands
+        app.update(); // reconcile re-issues
+        app.update(); // drain re-applies
+        assert!(
+            app.world().get::<AppliedSubscription>(sub).is_some(),
+            "the sub must be re-issued and re-applied on the reconnected socket",
         );
     }
 }

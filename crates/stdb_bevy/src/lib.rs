@@ -17,7 +17,9 @@ use crate::stdb_drivers::stdb_driver::{
 use crate::subscription::subscription_channel::{
     SubscriptionChannel, SubscriptionSink, drain_subscription_sink,
 };
-use crate::subscription::subscription_components::subscribe_pending_subscriptions;
+use crate::subscription::subscription_components::{
+    reset_subscriptions_on_stdbdisconnected, subscribe_pending_subscriptions,
+};
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
@@ -178,6 +180,8 @@ where
     fn build_subscription_app(&self, app: &mut bevy::app::App) {
         app.init_resource::<SubscriptionChannel>();
         app.insert_resource(self.sub_driver.clone());
+
+        app.add_observer(reset_subscriptions_on_stdbdisconnected);
 
         app.add_systems(
             bevy::app::Update,
