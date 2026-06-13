@@ -48,8 +48,6 @@ rm branch=`git branch --show-current` force="":
     echo "==> Removing worktree '{{branch}}'"
 
     if [ -d "${worktree_path}" ]; then
-        just wk::_stop_dev "${worktree_path}"
-
         echo "==> Stopping docker containers"
         (cd "${worktree_path}" && docker compose down 2>/dev/null) || true
     fi
