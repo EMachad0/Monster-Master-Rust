@@ -3,3 +3,11 @@
 # randomness panics at runtime in the browser.
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+# Silence Cargo's future-incompat notification for `block 0.1.6`, an unmaintained
+# transitive dep of the wgpu Metal backend (bevy 0.18 -> wgpu 27 -> metal-rs -> block).
+# It is macOS-only cosmetic noise that never fails the build; the real fix lands when
+# wgpu's objc2 migration reaches us via a Bevy upgrade. Caveat: `never` suppresses ALL
+# future-incompat notifications workspace-wide, not only block's.
+[future-incompat-report]
+frequency = "never"
