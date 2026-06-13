@@ -1,9 +1,9 @@
 use bevy::ecs::event::Event;
 
 #[derive(Debug, Clone, Event)]
-pub struct StdbError(StdbBevyError);
+pub struct StdbBevyErrorEvent(StdbBevyError);
 
-impl StdbError {
+impl StdbBevyErrorEvent {
     pub fn new(error: StdbBevyError) -> Self {
         Self(error)
     }
@@ -42,7 +42,7 @@ mod tests {
 
         app.init_resource::<ConnectErrorCaptured>();
         app.add_observer(
-            |on: On<StdbError>, mut captured: ResMut<ConnectErrorCaptured>| {
+            |on: On<StdbBevyErrorEvent>, mut captured: ResMut<ConnectErrorCaptured>| {
                 captured.0 = Some(on.event().error().clone());
             },
         );

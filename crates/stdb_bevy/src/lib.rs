@@ -23,7 +23,7 @@ pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
 pub use crate::connection::stdb_token::StdbToken;
-pub use crate::error::{StdbBevyError, StdbError};
+pub use crate::error::{StdbBevyError, StdbBevyErrorEvent};
 pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
 pub use crate::lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected};
 pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
@@ -36,6 +36,7 @@ pub use crate::subscription::stdb_subscription_driver::{NoSubscriptions, StdbSub
 pub use crate::subscription::subscription_components::{
     AppliedSubscription, FailedSubscription, IssuedSubscription, Subscription,
 };
+pub use crate::subscription::subscription_events::{SubscriptionApplied, SubscriptionFailed};
 pub use crate::utils::backoff::{Backoff, Jitter};
 pub use spacetimedb_sdk as __sdk;
 

@@ -4,7 +4,7 @@ use bevy::ecs::{
 };
 
 use crate::{
-    StdbBevyError, StdbError,
+    StdbBevyError, StdbBevyErrorEvent,
     connection::{
         stdb_connection::{StdbConn, StdbConnection},
         stdb_status::StdbStatus,
@@ -96,7 +96,7 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
             LifecycleEvent::ConnectionError(e) => {
                 commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
-                commands.trigger(StdbError::new(e));
+                commands.trigger(StdbBevyErrorEvent::new(e));
             }
             LifecycleEvent::Connecting => {
                 commands.insert_resource(StdbStatus::Connecting);
