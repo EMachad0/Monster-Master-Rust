@@ -37,6 +37,20 @@ pub struct AppliedSubscription;
 #[derive(Component)]
 pub struct FailedSubscription;
 
+#[allow(clippy::type_complexity)]
+pub fn is_subscriptions_settled(
+    inflight: Query<
+        (),
+        (
+            With<Subscription>,
+            Without<AppliedSubscription>,
+            Without<FailedSubscription>,
+        ),
+    >,
+) -> bool {
+    inflight.is_empty()
+}
+
 pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     subscriptions: Query<(Entity, &Subscription), Without<IssuedSubscription>>,
     driver: Res<Sd>,
@@ -79,6 +93,8 @@ pub(crate) fn unsubscribe_on_subscription_despawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bevy::ecs::system::RunSystemOnce;
 
     use crate::lifecycle::lifecycle_channel::LifecycleChannel;
     use crate::test_support::{FakeConn, FakeDriver, FakeHandle};
@@ -330,6 +346,52 @@ mod tests {
             probe.unsubscribes(),
             0,
             "despawning a never-issued subscription must not unsubscribe",
+        );
+    }
+
+    #[test]
+    fn no_subscriptions_is_settled() {
+        let mut world = World::new();
+
+        assert!(
+            world.run_system_once(is_subscriptions_settled).unwrap(),
+            "with no subscriptions there is nothing to wait for",
+        );
+    }
+
+    #[test]
+    fn all_applied_is_settled() {
+        let mut world = World::new();
+        world.spawn((Subscription::table("a"), AppliedSubscription));
+        world.spawn((Subscription::table("b"), AppliedSubscription));
+
+        assert!(
+            world.run_system_once(is_subscriptions_settled).unwrap(),
+            "every subscription applied means the world is settled",
+        );
+    }
+
+    #[test]
+    fn a_failed_subscription_still_counts_as_settled() {
+        let mut world = World::new();
+        world.spawn((Subscription::table("a"), AppliedSubscription));
+        world.spawn((Subscription::table("b"), FailedSubscription));
+
+        assert!(
+            world.run_system_once(is_subscriptions_settled).unwrap(),
+            "a terminally-failed subscription is resolved, so it must not block settled",
+        );
+    }
+
+    #[test]
+    fn an_in_flight_subscription_is_not_settled() {
+        let mut world = World::new();
+        world.spawn((Subscription::table("a"), AppliedSubscription));
+        world.spawn(Subscription::table("b")); // in-flight: neither applied nor failed
+
+        assert!(
+            !world.run_system_once(is_subscriptions_settled).unwrap(),
+            "an in-flight subscription must keep the world unsettled",
         );
     }
 }

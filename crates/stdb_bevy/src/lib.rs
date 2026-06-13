@@ -40,6 +40,7 @@ pub use crate::subscription::stdb_subscription_driver::{
 };
 pub use crate::subscription::subscription_components::{
     AppliedSubscription, FailedSubscription, IssuedSubscription, Subscription,
+    is_subscriptions_settled,
 };
 pub use crate::subscription::subscription_events::{SubscriptionApplied, SubscriptionFailed};
 pub use crate::utils::backoff::{Backoff, Jitter};
