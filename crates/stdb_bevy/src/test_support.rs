@@ -72,10 +72,10 @@ impl StdbSubscriptionDriver for FakeDriver {
         sink: crate::subscription::subscription_channel::SubscriptionSink,
         _subscription: &crate::Subscription,
     ) -> SubscriptionId {
-        // Mint an id and apply immediately, mirroring the real driver's on_applied.
-        let id = SubscriptionId::from(self.next_id.fetch_add(1, Ordering::Relaxed));
-        sink.applied(id);
-        id
+        // Mint an id (for the handle map) and apply immediately via the entity-bound sink,
+        // mirroring the real driver's on_applied.
+        sink.applied();
+        SubscriptionId::from(self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
     fn unsubscribe(

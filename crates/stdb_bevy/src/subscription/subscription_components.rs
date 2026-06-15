@@ -65,7 +65,7 @@ pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     mut commands: Commands,
 ) {
     for (entity, subscription) in subscriptions.iter() {
-        let handle = driver.subscribe(&conn, channel.sink(), subscription);
+        let handle = driver.subscribe(&conn, channel.sink(entity), subscription);
         commands
             .entity(entity)
             .insert(IssuedSubscription::new(handle));
@@ -94,7 +94,7 @@ pub(crate) fn unsubscribe_on_subscription_despawn<Sd: StdbSubscriptionDriver>(
 ) {
     let entity = observer.entity;
     if let Ok(IssuedSubscription { id }) = subscriptions.get(entity) {
-        driver.unsubscribe(channel.sink(), id);
+        driver.unsubscribe(channel.sink(entity), id);
     }
 }
 

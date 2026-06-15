@@ -61,14 +61,14 @@ where
                 let sink = sink.clone();
                 move |_ctx| {
                     bevy::log::info!("Subscription applied");
-                    sink.applied(subscription_id)
+                    sink.applied()
                 }
             })
             .on_error({
                 let sink = sink.clone();
                 move |_ctx, err| {
                     bevy::log::error!("SpacetimeDB subscription failed: {err}");
-                    sink.error(subscription_id, StdbBevyError::from(err));
+                    sink.error(StdbBevyError::from(err));
                 }
             })
             .subscribe(subscription.queries());
