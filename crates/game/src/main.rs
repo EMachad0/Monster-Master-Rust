@@ -1,7 +1,5 @@
 use bevy::prelude::*;
-use stdb_bevy::{
-    RowDeleted, RowInserted, SdkDriver, StdbPlugin, Subscription, is_stdb_connected, stdb_table,
-};
+use stdb_bevy::{RowDeleted, RowInserted, StdbPlugin, Subscription, is_stdb_connected, stdb_table};
 use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
 
 fn main() {
@@ -14,11 +12,11 @@ fn main() {
             ..default()
         }))
         .add_plugins(
-            StdbPlugin::new(SdkDriver::new(
+            StdbPlugin::sdk(
                 "http://127.0.0.1:3000",
                 "monster-master",
                 DbConnection::frame_tick,
-            ))
+            )
             .add_tables([stdb_table!(player => Player)])
             .with_connect_on_startup(),
         )

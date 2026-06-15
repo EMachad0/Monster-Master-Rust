@@ -1,25 +1,37 @@
-use bevy::ecs::{entity::Entity, resource::Resource};
+use bevy::ecs::resource::Resource;
 
 use crate::{
-    StdbBevyError, StdbConn, StdbConnection, Subscription,
-    subscription::subscription_channel::SubscriptionSink,
+    StdbConn, StdbConnection, Subscription, subscription::subscription_channel::SubscriptionSink,
 };
 
-pub trait SubscriptionHandle: Send + Sync {
-    fn unsubscribe(&self) -> Result<(), StdbBevyError>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubscriptionId(u64);
+
+impl SubscriptionId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<u64> for SubscriptionId {
+    fn from(value: u64) -> Self {
+        Self::new(value)
+    }
 }
 
 pub trait StdbSubscriptionDriver: Clone + Resource {
     type Conn: StdbConn;
-    type Handle: SubscriptionHandle;
 
     fn subscribe(
-        &self,
+        &mut self,
         conn: &StdbConnection<Self::Conn>,
-        entity: Entity,
-        subscription: &Subscription,
         sink: SubscriptionSink,
-    ) -> Self::Handle;
+        subscription: &Subscription,
+    ) -> SubscriptionId;
+
+    fn unsubscribe(&mut self, sink: SubscriptionSink, subscription_id: &SubscriptionId);
+
+    fn clear(&mut self);
 }
 
 pub struct NoSubscriptions;

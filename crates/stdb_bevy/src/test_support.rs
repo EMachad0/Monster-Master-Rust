@@ -3,7 +3,7 @@
 //! Available to this crate's own tests, and to downstream crates (e.g. `game`) and the bridge's
 //! public-API e2e suite via the `test-support` feature.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::resource::Resource;
@@ -14,7 +14,7 @@ use spacetimedb_sdk::{
 
 use crate::StdbSubscriptionDriver;
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
-use crate::{StdbBevyError, SubscriptionHandle};
+use crate::{StdbBevyError, SubscriptionId};
 
 /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
 #[derive(Clone, Default)]
@@ -27,6 +27,7 @@ pub struct FakeConn;
 pub struct FakeDriver {
     sink: Arc<Mutex<Option<LifecycleSink<FakeConn>>>>,
     unsubscribes: Arc<AtomicUsize>,
+    next_id: Arc<AtomicU64>,
 }
 
 impl FakeDriver {
@@ -62,34 +63,30 @@ impl StdbConnectionDriver for FakeDriver {
     }
 }
 
-#[derive(Default)]
-pub struct FakeHandle {
-    unsubscribes: Arc<AtomicUsize>,
-}
-
-impl SubscriptionHandle for FakeHandle {
-    fn unsubscribe(&self) -> Result<(), StdbBevyError> {
-        self.unsubscribes.fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    }
-}
-
 impl StdbSubscriptionDriver for FakeDriver {
     type Conn = FakeConn;
-    type Handle = FakeHandle;
 
     fn subscribe(
-        &self,
+        &mut self,
         _conn: &StdbConnection<Self::Conn>,
-        entity: bevy::ecs::entity::Entity,
-        _subscription: &crate::Subscription,
         sink: crate::subscription::subscription_channel::SubscriptionSink,
-    ) -> Self::Handle {
-        sink.applied(entity);
-        FakeHandle {
-            unsubscribes: self.unsubscribes.clone(),
-        }
+        _subscription: &crate::Subscription,
+    ) -> SubscriptionId {
+        // Mint an id and apply immediately, mirroring the real driver's on_applied.
+        let id = SubscriptionId::from(self.next_id.fetch_add(1, Ordering::Relaxed));
+        sink.applied(id);
+        id
     }
+
+    fn unsubscribe(
+        &mut self,
+        _sink: crate::subscription::subscription_channel::SubscriptionSink,
+        _subscription_id: &SubscriptionId,
+    ) {
+        self.unsubscribes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn clear(&mut self) {}
 }
 
 /// A driver whose `connect` does **not** complete: it announces `Connecting`, counts the kick, and

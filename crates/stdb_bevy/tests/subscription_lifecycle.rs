@@ -18,7 +18,10 @@ use stdb_bevy::{
 /// the `Time` the reconnect engine needs.
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins(StdbPlugin::new(FakeDriver::default())); // subscriptions on by default
+    app.add_plugins(StdbPlugin::new(
+        FakeDriver::default(),
+        FakeDriver::default(),
+    ));
     app.insert_resource(Time::<()>::default());
     app
 }

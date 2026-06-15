@@ -2,17 +2,20 @@
 //!
 //! This crate knows nothing about any specific Module.
 
+use std::fmt::Debug;
+
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 
+use crate::connection::stdb_connection_driver::{
+    StdbConnectionDriver, connect_on_stdbconnect, disconnect_on_stdbdisconnect,
+    tick_stdbconnectiondriver,
+};
 use crate::connection::stdb_intent::{
     StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
 };
 use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
-};
-use crate::stdb_drivers::stdb_driver::{
-    connect_on_stdbconnect, disconnect_on_stdbdisconnect, tick_stdbconnectiondriver,
 };
 use crate::subscription::subscription_channel::{
     SubscriptionChannel, SubscriptionSink, drain_subscription_sink,
@@ -34,9 +37,11 @@ pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
 pub use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
 pub use crate::row::table_registration::TableRegistration;
-pub use crate::stdb_drivers::{sdk_driver::SdkDriver, stdb_driver::StdbConnectionDriver};
+pub use crate::sdk_impl::{
+    sdk_connection_driver::SdkConnectionDriver, sdk_subscription_driver::SdkSubscriptionDriver,
+};
 pub use crate::subscription::stdb_subscription_driver::{
-    NoSubscriptions, StdbSubscriptionDriver, SubscriptionHandle,
+    NoSubscriptions, StdbSubscriptionDriver, SubscriptionId,
 };
 pub use crate::subscription::subscription_components::{
     AppliedSubscription, FailedSubscription, IssuedSubscription, Subscription,
@@ -50,7 +55,7 @@ mod connection;
 mod error;
 mod lifecycle;
 mod row;
-mod stdb_drivers;
+mod sdk_impl;
 mod subscription;
 mod utils;
 
@@ -66,21 +71,47 @@ pub enum StdbSystemSet {
 pub struct StdbPlugin<Cd: StdbConnectionDriver, Sd = Cd> {
     conn_driver: Cd,
     sub_driver: Sd,
-    connect_on_startup: bool,
     tables: Vec<TableRegistration<Cd::Conn>>,
+    connect_on_startup: bool,
 }
 
-impl<D> StdbPlugin<D, D>
+impl<Cd, Sd> StdbPlugin<Cd, Sd>
 where
-    D: StdbConnectionDriver + StdbSubscriptionDriver,
+    Cd: StdbConnectionDriver,
+    Sd: StdbSubscriptionDriver<Conn = Cd::Conn>,
 {
-    pub fn new(driver: D) -> Self {
+    pub fn new(conn_driver: Cd, sub_driver: Sd) -> Self {
         Self {
-            conn_driver: driver.clone(),
-            sub_driver: driver,
-            connect_on_startup: false,
+            conn_driver,
+            sub_driver,
             tables: Vec::new(),
+            connect_on_startup: false,
         }
+    }
+
+    fn build_subscription_app(&self, app: &mut bevy::app::App) {
+        app.init_resource::<SubscriptionChannel>();
+        app.insert_resource(self.sub_driver.clone());
+
+        app.add_observer(reset_subscriptions_on_stdbdisconnected::<Sd>);
+        app.add_observer(unsubscribe_on_subscription_despawn::<Sd>);
+
+        app.add_systems(
+            bevy::app::Update,
+            subscribe_pending_subscriptions::<Sd>
+                .run_if(is_stdb_connected)
+                .in_set(StdbSystemSet::Main),
+        );
+
+        app.add_systems(
+            bevy::app::Update,
+            drain_subscription_sink.in_set(StdbSystemSet::LifecycleEvents),
+        );
+    }
+
+    pub(crate) fn build(&self, app: &mut bevy::app::App) {
+        self.build_connection(app);
+        self.build_subscription_app(app);
     }
 }
 
@@ -144,7 +175,6 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         app.init_resource::<ReconnectState>();
 
         app.add_observer(reset_reconnectstate_on_stdbdisconnected);
-        app.add_observer(unsubscribe_on_subscription_despawn);
 
         app.add_systems(
             bevy::app::Update,
@@ -160,7 +190,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         }
     }
 
-    pub(crate) fn build(&self, app: &mut bevy::app::App) {
+    pub(crate) fn build_connection(&self, app: &mut bevy::app::App) {
         self.build_lifecyle_app(app);
         self.build_recconect_app(app);
         self.build_tables_app(app);
@@ -190,48 +220,35 @@ impl<Cd: StdbConnectionDriver> StdbPlugin<Cd, NoSubscriptions> {
     }
 }
 
-impl<Cd, Sd> StdbPlugin<Cd, Sd>
+impl<M, C> StdbPlugin<SdkConnectionDriver<M, C>, SdkSubscriptionDriver<M, C>>
 where
-    Cd: StdbConnectionDriver,
-    Sd: StdbSubscriptionDriver<Conn = Cd::Conn>,
+    M: sdk_impl::SdkSpacetimeModule<DbConnection = C>,
+    C: sdk_impl::SdkDbConnection<Module = M> + spacetimedb_sdk::DbContext + StdbConn,
+    M::SubscriptionHandle: Send + Sync,
 {
-    pub fn drivers(conn_driver: Cd, sub_driver: Sd) -> Self {
+    pub fn sdk<U>(
+        uri: U,
+        database_name: impl Into<String>,
+        tick: fn(&C) -> spacetimedb_sdk::Result<()>,
+    ) -> Self
+    where
+        U: TryInto<http::Uri>,
+        U::Error: Debug,
+    {
+        let conn_driver = SdkConnectionDriver::new(uri, database_name, tick);
+        let sub_driver = SdkSubscriptionDriver::default();
         Self {
             conn_driver,
             sub_driver,
-            connect_on_startup: false,
             tables: Vec::new(),
+            connect_on_startup: false,
         }
-    }
-
-    fn build_subscription_app(&self, app: &mut bevy::app::App) {
-        app.init_resource::<SubscriptionChannel>();
-        app.insert_resource(self.sub_driver.clone());
-
-        app.add_observer(reset_subscriptions_on_stdbdisconnected);
-
-        app.add_systems(
-            bevy::app::Update,
-            subscribe_pending_subscriptions::<Sd>
-                .run_if(is_stdb_connected)
-                .in_set(StdbSystemSet::Main),
-        );
-
-        app.add_systems(
-            bevy::app::Update,
-            drain_subscription_sink.in_set(StdbSystemSet::LifecycleEvents),
-        );
-    }
-
-    pub(crate) fn build_with_subscriptions(&self, app: &mut bevy::app::App) {
-        self.build(app);
-        self.build_subscription_app(app);
     }
 }
 
 impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd, NoSubscriptions> {
     fn build(&self, app: &mut bevy::app::App) {
-        self.build(app);
+        self.build_connection(app);
     }
 }
 
@@ -241,7 +258,7 @@ where
     Sd: StdbSubscriptionDriver<Conn = Cd::Conn>,
 {
     fn build(&self, app: &mut bevy::app::App) {
-        self.build_with_subscriptions(app);
+        self.build(app);
     }
 }
 

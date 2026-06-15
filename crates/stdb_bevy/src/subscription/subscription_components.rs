@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::{
-    StdbConnection, StdbDisconnected, StdbSubscriptionDriver, SubscriptionHandle,
+    StdbConnection, StdbDisconnected, StdbSubscriptionDriver, SubscriptionId,
     subscription::subscription_channel::SubscriptionChannel,
 };
 
@@ -28,14 +28,12 @@ impl Subscription {
 
 #[derive(Component)]
 pub struct IssuedSubscription {
-    handle: Box<dyn SubscriptionHandle + Send + Sync>,
+    pub id: SubscriptionId,
 }
 
 impl IssuedSubscription {
-    pub fn new(handle: impl SubscriptionHandle + 'static) -> Self {
-        Self {
-            handle: Box::new(handle),
-        }
+    pub fn new(id: SubscriptionId) -> Self {
+        Self { id }
     }
 }
 
@@ -61,22 +59,23 @@ pub fn is_subscriptions_settled(
 
 pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     subscriptions: Query<(Entity, &Subscription), Without<IssuedSubscription>>,
-    driver: Res<Sd>,
+    mut driver: ResMut<Sd>,
     conn: Res<StdbConnection<Sd::Conn>>,
     channel: Res<SubscriptionChannel>,
     mut commands: Commands,
 ) {
     for (entity, subscription) in subscriptions.iter() {
-        let handle = driver.subscribe(&conn, entity, subscription, channel.sink());
+        let handle = driver.subscribe(&conn, channel.sink(), subscription);
         commands
             .entity(entity)
             .insert(IssuedSubscription::new(handle));
     }
 }
 
-pub(crate) fn reset_subscriptions_on_stdbdisconnected(
+pub(crate) fn reset_subscriptions_on_stdbdisconnected<Sd: StdbSubscriptionDriver>(
     _: On<StdbDisconnected>,
     subscriptions: Query<Entity, With<Subscription>>,
+    mut driver: ResMut<Sd>,
     mut commands: Commands,
 ) {
     for entity in subscriptions.iter() {
@@ -84,17 +83,18 @@ pub(crate) fn reset_subscriptions_on_stdbdisconnected(
             .entity(entity)
             .remove::<(IssuedSubscription, AppliedSubscription, FailedSubscription)>();
     }
+    driver.clear();
 }
 
-pub(crate) fn unsubscribe_on_subscription_despawn(
+pub(crate) fn unsubscribe_on_subscription_despawn<Sd: StdbSubscriptionDriver>(
     observer: On<Remove, Subscription>,
     subscriptions: Query<&IssuedSubscription, With<Subscription>>,
+    mut driver: ResMut<Sd>,
+    channel: Res<SubscriptionChannel>,
 ) {
     let entity = observer.entity;
-    if let Ok(issued) = subscriptions.get(entity) {
-        issued.handle.unsubscribe().unwrap_or_else(|err| {
-            bevy::log::error!("error while unsubscribing {}", err);
-        });
+    if let Ok(IssuedSubscription { id }) = subscriptions.get(entity) {
+        driver.unsubscribe(channel.sink(), id);
     }
 }
 
@@ -105,14 +105,16 @@ mod tests {
     use bevy::ecs::system::RunSystemOnce;
 
     use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-    use crate::test_support::{FakeConn, FakeDriver, FakeHandle};
-    use crate::{StdbConnect, StdbDisconnected, StdbPlugin};
+    use crate::test_support::{FakeConn, FakeDriver};
+    use crate::{StdbConnect, StdbDisconnected, StdbPlugin, SubscriptionId};
 
-    /// A test `App` with the subscription layer on (the default): the `FakeDriver` doubles as both
-    /// the connection and subscription driver. Connection-only tests keep using `test_app`.
+    /// A test `App` with the subscription layer on. Connection-only tests keep using `test_app`.
     fn app_with_subscriptions() -> App {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::new(FakeDriver::default()));
+        app.add_plugins(StdbPlugin::new(
+            FakeDriver::default(),
+            FakeDriver::default(),
+        ));
         app.insert_resource(Time::<()>::default());
         app
     }
@@ -240,7 +242,9 @@ mod tests {
             .world_mut()
             .spawn((
                 Subscription::table("a"),
-                IssuedSubscription::new(FakeHandle::default()),
+                IssuedSubscription {
+                    id: SubscriptionId::from(0),
+                },
                 AppliedSubscription,
             ))
             .id();
@@ -248,7 +252,9 @@ mod tests {
             .world_mut()
             .spawn((
                 Subscription::table("b"),
-                IssuedSubscription::new(FakeHandle::default()),
+                IssuedSubscription {
+                    id: SubscriptionId::from(1),
+                },
                 FailedSubscription,
             ))
             .id();
@@ -311,10 +317,10 @@ mod tests {
     /// read `unsubscribes()`. `new` uses the one driver as both connection and subscription driver,
     /// so the probe shares its unsubscribe counter.
     fn app_with_sub_probe() -> (App, FakeDriver) {
-        let driver = FakeDriver::default();
-        let probe = driver.clone();
+        let sub_driver = FakeDriver::default();
+        let probe = sub_driver.clone(); // shares the unsubscribe counter with the sub driver
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::new(driver));
+        app.add_plugins(StdbPlugin::new(FakeDriver::default(), sub_driver));
         app.insert_resource(Time::<()>::default());
         (app, probe)
     }

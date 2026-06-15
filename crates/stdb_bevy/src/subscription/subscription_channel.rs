@@ -1,17 +1,17 @@
 use bevy::ecs::{
     entity::Entity,
     resource::Resource,
-    system::{Commands, Res},
+    system::{Commands, Query, Res},
 };
 
 use crate::{
-    StdbBevyError, SubscriptionApplied, SubscriptionFailed,
+    IssuedSubscription, StdbBevyError, SubscriptionApplied, SubscriptionFailed, SubscriptionId,
     subscription::subscription_components::{AppliedSubscription, FailedSubscription},
 };
 
 pub enum SubscriptionEvent {
-    Applied(Entity),
-    Error(Entity, StdbBevyError),
+    Applied(SubscriptionId),
+    Error(SubscriptionId, StdbBevyError),
 }
 
 #[derive(Clone)]
@@ -20,17 +20,17 @@ pub struct SubscriptionSink {
 }
 
 impl SubscriptionSink {
-    pub fn applied(&self, entity: Entity) {
+    pub fn applied(&self, id: SubscriptionId) {
         self.sender
-            .send(SubscriptionEvent::Applied(entity))
+            .send(SubscriptionEvent::Applied(id))
             .unwrap_or_else(|err| {
                 bevy::log::error!("SubscriptionSink applied sender error {}", err)
             });
     }
 
-    pub fn error(&self, entity: Entity, error: StdbBevyError) {
+    pub fn error(&self, id: SubscriptionId, error: StdbBevyError) {
         self.sender
-            .send(SubscriptionEvent::Error(entity, error))
+            .send(SubscriptionEvent::Error(id, error))
             .unwrap_or_else(|err| {
                 bevy::log::error!("SubscriptionSink applied sender error {}", err)
             });
@@ -64,20 +64,30 @@ impl Default for SubscriptionChannel {
 
 pub(crate) fn drain_subscription_sink(
     row_channel: Res<SubscriptionChannel>,
+    subscriptions: Query<(Entity, &IssuedSubscription)>,
     mut commands: Commands,
 ) {
+    // TODO: Remove this O(n)
+    let get_entity_with_id = |id: SubscriptionId| {
+        subscriptions
+            .iter()
+            .find(|(_, sub)| sub.id == id)
+            .map(|(entity, _)| entity)
+    };
     while let Ok(stdb_event) = row_channel.receiver.try_recv() {
         match stdb_event {
-            SubscriptionEvent::Applied(entity) => {
-                if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+            SubscriptionEvent::Applied(id) => {
+                if let Some(entity) = get_entity_with_id(id) {
                     commands
+                        .entity(entity)
                         .insert(AppliedSubscription)
                         .trigger(SubscriptionApplied::from);
                 }
             }
-            SubscriptionEvent::Error(entity, error) => {
-                if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+            SubscriptionEvent::Error(id, error) => {
+                if let Some(entity) = get_entity_with_id(id) {
                     commands
+                        .entity(entity)
                         .insert(FailedSubscription)
                         .trigger(|entity| SubscriptionFailed::new(entity, error));
                 }
@@ -123,11 +133,12 @@ mod tests {
     #[test]
     fn applied_marks_the_entity_and_fires_subscription_applied() {
         let mut app = drain_app();
-        let entity = app.world_mut().spawn_empty().id();
+        let id = SubscriptionId::from(1);
+        let entity = app.world_mut().spawn(IssuedSubscription { id }).id();
 
         // Push an applied signal through the same seam the SDK on_applied callback uses.
         let sink = app.world().resource::<SubscriptionChannel>().sink();
-        sink.applied(entity);
+        sink.applied(id);
 
         app.update();
 
@@ -145,12 +156,13 @@ mod tests {
     #[test]
     fn applied_for_a_despawned_entity_is_ignored() {
         let mut app = drain_app();
-        let entity = app.world_mut().spawn_empty().id();
+        let id = SubscriptionId::from(1);
+        let entity = app.world_mut().spawn(IssuedSubscription { id }).id();
         app.world_mut().entity_mut(entity).despawn();
 
         // The applied signal can land a frame or more after the Game despawned the subscription.
         let sink = app.world().resource::<SubscriptionChannel>().sink();
-        sink.applied(entity);
+        sink.applied(id);
 
         app.update(); // must not panic
 
@@ -163,11 +175,12 @@ mod tests {
     #[test]
     fn error_marks_failed_and_fires_subscription_failed() {
         let mut app = drain_app();
-        let entity = app.world_mut().spawn_empty().id();
+        let id = SubscriptionId::from(1);
+        let entity = app.world_mut().spawn(IssuedSubscription { id }).id();
 
         // Push an error signal through the same seam the SDK on_error callback uses.
         let sink = app.world().resource::<SubscriptionChannel>().sink();
-        sink.error(entity, StdbBevyError::ConnectionRefused);
+        sink.error(id, StdbBevyError::ConnectionRefused);
 
         app.update();
 
@@ -185,12 +198,13 @@ mod tests {
     #[test]
     fn error_for_a_despawned_entity_is_ignored() {
         let mut app = drain_app();
-        let entity = app.world_mut().spawn_empty().id();
+        let id = SubscriptionId::from(1);
+        let entity = app.world_mut().spawn(IssuedSubscription { id }).id();
         app.world_mut().entity_mut(entity).despawn();
 
         // The error signal can land a frame or more after the Game despawned the subscription.
         let sink = app.world().resource::<SubscriptionChannel>().sink();
-        sink.error(entity, StdbBevyError::ConnectionRefused);
+        sink.error(id, StdbBevyError::ConnectionRefused);
 
         app.update(); // must not panic
 
