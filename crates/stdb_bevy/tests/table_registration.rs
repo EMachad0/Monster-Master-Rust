@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use stdb_bevy::test_support::{FakeConn, FakeConnectionDriver, FakeTable};
+use stdb_bevy::test_support::{FakeConn, FakeDriver, FakeTable};
 use stdb_bevy::{
     Backoff, Jitter, ReconnectPolicy, RowForwarder, RowInserted, StdbConnect, StdbConnection,
     StdbPlugin, StdbStatus, StdbSystemSet, TableRegistration,
@@ -61,12 +61,10 @@ fn forward_gadget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Gadget>) {
 #[test]
 fn add_tables_forwards_every_table_on_connect() {
     let mut app = App::new();
-    app.add_plugins(
-        StdbPlugin::new(FakeConnectionDriver::default()).add_tables([
-            TableRegistration::new(forward_widget),
-            TableRegistration::new(forward_gadget),
-        ]),
-    );
+    app.add_plugins(StdbPlugin::connection(FakeDriver::default()).add_tables([
+        TableRegistration::new(forward_widget),
+        TableRegistration::new(forward_gadget),
+    ]));
     app.insert_resource(Time::<()>::default());
     app.init_resource::<WidgetInserts>();
     app.init_resource::<GadgetInserts>();
@@ -95,7 +93,7 @@ fn add_tables_forwards_every_table_on_connect() {
 fn does_not_forward_before_connect() {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(FakeConnectionDriver::default())
+        StdbPlugin::connection(FakeDriver::default())
             .add_tables([TableRegistration::new(forward_widget)]),
     );
     app.insert_resource(Time::<()>::default());
@@ -115,7 +113,7 @@ fn does_not_forward_before_connect() {
 fn rows_reach_after_set_readers_in_the_same_frame() {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(FakeConnectionDriver::default())
+        StdbPlugin::connection(FakeDriver::default())
             .add_tables([TableRegistration::new(forward_widget)]),
     );
     app.insert_resource(Time::<()>::default());
@@ -135,10 +133,12 @@ fn rows_reach_after_set_readers_in_the_same_frame() {
 
 #[test]
 fn re_registers_on_reconnect() {
-    let driver = FakeConnectionDriver::default();
+    let driver = FakeDriver::default();
     let probe = driver.clone(); // retains the sink, to simulate an unsolicited drop
     let mut app = App::new();
-    app.add_plugins(StdbPlugin::new(driver).add_tables([TableRegistration::new(forward_widget)]));
+    app.add_plugins(
+        StdbPlugin::connection(driver).add_tables([TableRegistration::new(forward_widget)]),
+    );
     app.insert_resource(Time::<()>::default());
     app.insert_resource(ReconnectPolicy {
         backoff: Backoff::Fixed(Duration::from_secs(1)),

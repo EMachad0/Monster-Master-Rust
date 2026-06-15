@@ -129,7 +129,7 @@ fn macro_all_callbacks_forwards_insert_update_delete() {
 
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(CannedDriver::new(conn)).add_tables([stdb_table!(widget => Widget)]),
+        StdbPlugin::connection(CannedDriver::new(conn)).add_tables([stdb_table!(widget => Widget)]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<WidgetInserts>();
@@ -182,7 +182,7 @@ fn macro_selection_wires_only_listed_callbacks() {
 
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(CannedDriver::new(conn))
+        StdbPlugin::connection(CannedDriver::new(conn))
             .add_tables([stdb_table!(widget => Widget, [insert, delete])]),
     );
     app.insert_resource(Time::<()>::default());
@@ -236,7 +236,7 @@ fn add_tables_takes_many_macro_tables_without_naming_the_connection_type() {
 
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(CannedDriver::new(conn))
+        StdbPlugin::connection(CannedDriver::new(conn))
             .add_tables([stdb_table!(widget => Widget), stdb_table!(gadget => Gadget)]),
     );
     app.insert_resource(Time::<()>::default());

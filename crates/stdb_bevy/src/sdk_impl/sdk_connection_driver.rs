@@ -3,13 +3,9 @@ use std::fmt::Debug;
 use bevy::ecs::resource::Resource;
 use spacetimedb_sdk::{DbConnectionBuilder, DbContext};
 
-use crate::{
-    StdbConn, StdbConnectionDriver, StdbToken, lifecycle::lifecycle_events::ConnectionError,
-};
+use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbToken};
 
-pub use spacetimedb_sdk::__codegen::{
-    DbConnection as SdkDbConnection, SpacetimeModule as SdkSpacetimeModule,
-};
+use super::{SdkDbConnection, SdkSpacetimeModule};
 
 #[derive(Resource)]
 pub struct SdkConnectionDriver<M, C>
@@ -54,7 +50,7 @@ where
 impl<M, C> StdbConnectionDriver for SdkConnectionDriver<M, C>
 where
     M: SdkSpacetimeModule<DbConnection = C>,
-    C: SdkDbConnection<Module = M> + StdbConn + DbContext,
+    C: SdkDbConnection<Module = M> + DbContext + StdbConn,
 {
     type Conn = C;
 
@@ -87,7 +83,7 @@ where
                 let sink = sink.clone();
                 move |_error_ctx, error| {
                     bevy::log::error!("Connection Error {}", error);
-                    sink.connection_error(ConnectionError::from(error))
+                    sink.connection_error(StdbBevyError::from(error))
                         .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
                 }
             });
@@ -100,7 +96,7 @@ where
             }
             Err(err) => {
                 bevy::log::error!("SpacetimeDB build failed: {err}");
-                sink.connection_error(ConnectionError::from(err))
+                sink.connection_error(StdbBevyError::from(err))
                     .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
             }
         }
@@ -114,7 +110,7 @@ where
                 }
                 Err(err) => {
                     bevy::log::error!("SpacetimeDB build failed: {err}");
-                    sink.connection_error(ConnectionError::from(err))
+                    sink.connection_error(StdbBevyError::from(err))
                         .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
                 }
             }

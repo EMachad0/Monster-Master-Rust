@@ -3,7 +3,7 @@
 //! Available to this crate's own tests, and to downstream crates (e.g. `game`) and the bridge's
 //! public-API e2e suite via the `test-support` feature.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::resource::Resource;
@@ -12,8 +12,9 @@ use spacetimedb_sdk::{
     TableWithPrimaryKey as SdkTableWithPrimaryKey,
 };
 
-use crate::lifecycle::lifecycle_events::ConnectionError;
+use crate::StdbSubscriptionDriver;
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
+use crate::{StdbBevyError, SubscriptionId};
 
 /// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
 #[derive(Clone, Default)]
@@ -23,11 +24,18 @@ pub struct FakeConn;
 /// sink it was handed, so a test can later push an unsolicited drop or error through the public
 /// `LifecycleSink`.
 #[derive(Resource, Clone, Default)]
-pub struct FakeConnectionDriver {
+pub struct FakeDriver {
     sink: Arc<Mutex<Option<LifecycleSink<FakeConn>>>>,
+    unsubscribes: Arc<AtomicUsize>,
+    next_id: Arc<AtomicU64>,
 }
 
-impl FakeConnectionDriver {
+impl FakeDriver {
+    /// How many times a handle issued by this driver has been unsubscribed.
+    pub fn unsubscribes(&self) -> usize {
+        self.unsubscribes.load(Ordering::Relaxed)
+    }
+
     /// The sink handed to the most recent `connect`, for simulating a drop/error after a connect.
     pub fn sink(&self) -> LifecycleSink<FakeConn> {
         self.sink
@@ -38,7 +46,7 @@ impl FakeConnectionDriver {
     }
 }
 
-impl StdbConnectionDriver for FakeConnectionDriver {
+impl StdbConnectionDriver for FakeDriver {
     type Conn = FakeConn;
 
     fn connect(&self, sink: LifecycleSink<FakeConn>) {
@@ -53,6 +61,32 @@ impl StdbConnectionDriver for FakeConnectionDriver {
     fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
         sink.disconnected().unwrap();
     }
+}
+
+impl StdbSubscriptionDriver for FakeDriver {
+    type Conn = FakeConn;
+
+    fn subscribe(
+        &mut self,
+        _conn: &StdbConnection<Self::Conn>,
+        sink: crate::subscription::subscription_channel::SubscriptionSink,
+        _subscription: &crate::Subscription,
+    ) -> SubscriptionId {
+        // Mint an id (for the handle map) and apply immediately via the entity-bound sink,
+        // mirroring the real driver's on_applied.
+        sink.applied();
+        SubscriptionId::from(self.next_id.fetch_add(1, Ordering::Relaxed))
+    }
+
+    fn unsubscribe(
+        &mut self,
+        _sink: crate::subscription::subscription_channel::SubscriptionSink,
+        _subscription_id: &SubscriptionId,
+    ) {
+        self.unsubscribes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn clear(&mut self) {}
 }
 
 /// A driver whose `connect` does **not** complete: it announces `Connecting`, counts the kick, and
@@ -88,7 +122,7 @@ impl DeferredDriver {
     /// naming the internal `ConnectionError`).
     pub fn deliver_error(&self) {
         self.take_parked_sink()
-            .connection_error(ConnectionError::ConnectionRefused)
+            .connection_error(StdbBevyError::ConnectionRefused)
             .unwrap();
     }
 }
@@ -102,11 +136,11 @@ impl StdbConnectionDriver for DeferredDriver {
         *self.parked_sink.lock().unwrap() = Some(sink); // parked: not connected yet
     }
 
-    fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
-
     fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
         sink.disconnected().unwrap();
     }
+
+    fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
 }
 
 /// A fake SDK table handle that delivers its canned rows the instant a callback is registered, so a
@@ -182,11 +216,11 @@ impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
         sink.connected(self.conn.clone()).unwrap();
     }
 
-    fn tick(&self, _conn: &StdbConnection<C>) {}
-
     fn disconnect(&self, _conn: &StdbConnection<C>, sink: LifecycleSink<C>) {
         sink.disconnected().unwrap();
     }
+
+    fn tick(&self, _conn: &StdbConnection<C>) {}
 }
 
 /// A fake connection that satisfies the SDK's [`DbContext`] so the `stdb_table!` macro's
@@ -237,11 +271,12 @@ impl<V: Send + Sync + 'static> DbContext for FakeDbContext<V> {
     }
 }
 
-/// Build a test `App` with the bridge installed for `driver`, plus a `Time` resource — the reconnect
-/// system needs `Time`, which production supplies via the Game's `TimePlugin`.
+/// Build a test `App` with the **connection-only** bridge installed for `driver`, plus a `Time`
+/// resource — the reconnect system needs `Time`, which production supplies via the Game's
+/// `TimePlugin`. Subscription tests build their own app via `StdbPlugin::new` (subscriptions on).
 pub fn test_app<Cd: StdbConnectionDriver + Clone>(driver: Cd) -> bevy::app::App {
     let mut app = bevy::app::App::new();
-    app.add_plugins(crate::StdbPlugin::new(driver));
+    app.add_plugins(crate::StdbPlugin::connection(driver));
     app.insert_resource(bevy::time::Time::<()>::default());
     app
 }

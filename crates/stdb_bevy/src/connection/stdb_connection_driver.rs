@@ -48,14 +48,14 @@ pub(crate) fn tick_stdbconnectiondriver<Cd: StdbConnectionDriver>(
 mod tests {
     use crate::{
         connection::stdb_status::StdbStatus,
-        test_support::{FakeConn, FakeConnectionDriver, test_app},
+        test_support::{FakeConn, FakeDriver, test_app},
     };
 
     use super::*;
 
     #[test]
     fn stdb_connect_establishes_the_connection() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_closes_the_connection() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         // Connect first.
         app.world_mut().trigger(StdbConnect);
@@ -115,12 +115,12 @@ mod tests {
             sink.connected(FakeConn).unwrap();
         }
 
-        fn tick(&self, _conn: &StdbConnection<FakeConn>) {
-            self.ticks.fetch_add(1, Ordering::Relaxed);
-        }
-
         fn disconnect(&self, _conn: &StdbConnection<FakeConn>, sink: LifecycleSink<FakeConn>) {
             sink.disconnected().unwrap();
+        }
+
+        fn tick(&self, _conn: &StdbConnection<FakeConn>) {
+            self.ticks.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -169,7 +169,7 @@ mod tests {
         use crate::connection::stdb_intent::StdbIntent;
 
         let mut app = bevy::app::App::new();
-        app.add_plugins(StdbPlugin::new(FakeConnectionDriver::default()).with_connect_on_startup());
+        app.add_plugins(StdbPlugin::connection(FakeDriver::default()).with_connect_on_startup());
         app.insert_resource(bevy::time::Time::<()>::default());
 
         app.update(); // Startup connects, then the lifecycle drains.
@@ -187,10 +187,10 @@ mod tests {
         use crate::{Backoff, Jitter, ReconnectPolicy, StdbPlugin};
         use std::time::Duration;
 
-        let driver = FakeConnectionDriver::default();
+        let driver = FakeDriver::default();
         let probe = driver.clone(); // retains the sink, to simulate an unsolicited drop
         let mut app = bevy::app::App::new();
-        app.add_plugins(StdbPlugin::new(driver).with_connect_on_startup());
+        app.add_plugins(StdbPlugin::connection(driver).with_connect_on_startup());
         app.insert_resource(bevy::time::Time::<()>::default());
         app.insert_resource(ReconnectPolicy {
             backoff: Backoff::Fixed(Duration::from_secs(1)),

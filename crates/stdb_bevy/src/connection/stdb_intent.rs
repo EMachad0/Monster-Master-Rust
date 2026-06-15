@@ -22,12 +22,12 @@ pub(crate) fn update_intent_on_stdbdisconnect(
 #[cfg(test)]
 mod tests {
     use super::StdbIntent;
-    use crate::test_support::{FakeConnectionDriver, test_app};
+    use crate::test_support::{FakeDriver, test_app};
     use crate::{StdbConnect, StdbDisconnect, StdbStatus};
 
     #[test]
     fn engine_starts_disconnected_with_disconnected_intent() {
-        let app = test_app(FakeConnectionDriver::default());
+        let app = test_app(FakeDriver::default());
 
         assert_eq!(
             *app.world().resource::<StdbStatus>(),
@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn stdb_connect_request_sets_intent_connected() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         app.world_mut().trigger(StdbConnect);
         app.update();
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn stdb_disconnect_request_sets_intent_disconnected() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
 
         // Reach Connected intent first, so the flip back is observable.
         app.world_mut().trigger(StdbConnect);

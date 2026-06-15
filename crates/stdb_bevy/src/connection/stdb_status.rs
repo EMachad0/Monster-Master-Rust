@@ -17,7 +17,7 @@ mod tests {
 
     use crate::is_stdb_connected;
     use crate::lifecycle::lifecycle_channel::LifecycleChannel;
-    use crate::test_support::{FakeConn, FakeConnectionDriver, test_app};
+    use crate::test_support::{FakeConn, FakeDriver, test_app};
 
     #[derive(Resource, Default)]
     struct RunCount(u32);
@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn stdb_connected_run_condition_gates_systems() {
-        let mut app = test_app(FakeConnectionDriver::default());
+        let mut app = test_app(FakeDriver::default());
         app.init_resource::<RunCount>();
         app.add_systems(Update, count_up.run_if(is_stdb_connected));
 
