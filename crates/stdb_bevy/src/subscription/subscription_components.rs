@@ -108,13 +108,11 @@ mod tests {
     use crate::test_support::{FakeConn, FakeDriver, FakeHandle};
     use crate::{StdbConnect, StdbDisconnected, StdbPlugin};
 
-    /// A test `App` with both the connection and subscription layers installed (the connecting
-    /// fake doubles as the subscription driver). Connection-only tests keep using `test_app`.
+    /// A test `App` with the subscription layer on (the default): the `FakeDriver` doubles as both
+    /// the connection and subscription driver. Connection-only tests keep using `test_app`.
     fn app_with_subscriptions() -> App {
         let mut app = App::new();
-        app.add_plugins(
-            StdbPlugin::new(FakeDriver::default()).with_subscriptions(FakeDriver::default()),
-        );
+        app.add_plugins(StdbPlugin::new(FakeDriver::default()));
         app.insert_resource(Time::<()>::default());
         app
     }
@@ -309,14 +307,14 @@ mod tests {
         );
     }
 
-    /// A test `App` with the subscription layer installed, returning a probe over the **subscription**
-    /// driver so a test can read `unsubscribes()`. (`app_with_subscriptions` builds two anonymous
-    /// fakes; here we keep a handle on the one whose `subscribe`/unsubscribe-token runs.)
+    /// A test `App` with the subscription layer on, returning a probe over the driver so a test can
+    /// read `unsubscribes()`. `new` uses the one driver as both connection and subscription driver,
+    /// so the probe shares its unsubscribe counter.
     fn app_with_sub_probe() -> (App, FakeDriver) {
         let driver = FakeDriver::default();
         let probe = driver.clone();
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::new(FakeDriver::default()).with_subscriptions(driver));
+        app.add_plugins(StdbPlugin::new(driver));
         app.insert_resource(Time::<()>::default());
         (app, probe)
     }

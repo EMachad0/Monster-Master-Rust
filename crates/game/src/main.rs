@@ -1,7 +1,6 @@
 use bevy::prelude::*;
-use spacetimedb_sdk::DbContext;
 use stdb_bevy::{
-    RowDeleted, RowInserted, SdkDriver, StdbConnection, StdbPlugin, is_stdb_connected, stdb_table,
+    RowDeleted, RowInserted, SdkDriver, StdbPlugin, Subscription, is_stdb_connected, stdb_table,
 };
 use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
 
@@ -24,7 +23,7 @@ fn main() {
             .with_connect_on_startup(),
         )
         .init_resource::<OnlineCounter>()
-        .add_systems(Startup, setup)
+        .add_systems(Startup, (setup, subscribe_to_players))
         .add_systems(
             Update,
             (
@@ -33,7 +32,6 @@ fn main() {
             )
                 .run_if(is_stdb_connected),
         )
-        .add_observer(subscribe_to_players_on_connect)
         .run();
 }
 
@@ -41,14 +39,10 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-fn subscribe_to_players_on_connect(
-    _: On<stdb_bevy::StdbConnected>,
-    conn: Res<StdbConnection<DbConnection>>,
-) {
-    conn.subscription_builder()
-        .on_applied(|_| info!("subscription applied"))
-        .on_error(|_, err| error!("subscription error: {err}"))
-        .subscribe(["SELECT * FROM player WHERE online = true"]);
+fn subscribe_to_players(mut commands: Commands) {
+    commands.spawn(Subscription::query(
+        "SELECT * FROM player WHERE online = true;",
+    ));
 }
 
 #[derive(Debug, Default, Resource)]

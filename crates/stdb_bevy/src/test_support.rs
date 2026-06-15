@@ -274,11 +274,12 @@ impl<V: Send + Sync + 'static> DbContext for FakeDbContext<V> {
     }
 }
 
-/// Build a test `App` with the bridge installed for `driver`, plus a `Time` resource — the reconnect
-/// system needs `Time`, which production supplies via the Game's `TimePlugin`.
+/// Build a test `App` with the **connection-only** bridge installed for `driver`, plus a `Time`
+/// resource — the reconnect system needs `Time`, which production supplies via the Game's
+/// `TimePlugin`. Subscription tests build their own app via `StdbPlugin::new` (subscriptions on).
 pub fn test_app<Cd: StdbConnectionDriver + Clone>(driver: Cd) -> bevy::app::App {
     let mut app = bevy::app::App::new();
-    app.add_plugins(crate::StdbPlugin::new(driver));
+    app.add_plugins(crate::StdbPlugin::connection(driver));
     app.insert_resource(bevy::time::Time::<()>::default());
     app
 }

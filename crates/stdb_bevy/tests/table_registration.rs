@@ -61,7 +61,7 @@ fn forward_gadget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Gadget>) {
 #[test]
 fn add_tables_forwards_every_table_on_connect() {
     let mut app = App::new();
-    app.add_plugins(StdbPlugin::new(FakeDriver::default()).add_tables([
+    app.add_plugins(StdbPlugin::connection(FakeDriver::default()).add_tables([
         TableRegistration::new(forward_widget),
         TableRegistration::new(forward_gadget),
     ]));
@@ -93,7 +93,8 @@ fn add_tables_forwards_every_table_on_connect() {
 fn does_not_forward_before_connect() {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(FakeDriver::default()).add_tables([TableRegistration::new(forward_widget)]),
+        StdbPlugin::connection(FakeDriver::default())
+            .add_tables([TableRegistration::new(forward_widget)]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<WidgetInserts>();
@@ -112,7 +113,8 @@ fn does_not_forward_before_connect() {
 fn rows_reach_after_set_readers_in_the_same_frame() {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::new(FakeDriver::default()).add_tables([TableRegistration::new(forward_widget)]),
+        StdbPlugin::connection(FakeDriver::default())
+            .add_tables([TableRegistration::new(forward_widget)]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<WidgetInserts>();
@@ -134,7 +136,9 @@ fn re_registers_on_reconnect() {
     let driver = FakeDriver::default();
     let probe = driver.clone(); // retains the sink, to simulate an unsolicited drop
     let mut app = App::new();
-    app.add_plugins(StdbPlugin::new(driver).add_tables([TableRegistration::new(forward_widget)]));
+    app.add_plugins(
+        StdbPlugin::connection(driver).add_tables([TableRegistration::new(forward_widget)]),
+    );
     app.insert_resource(Time::<()>::default());
     app.insert_resource(ReconnectPolicy {
         backoff: Backoff::Fixed(Duration::from_secs(1)),

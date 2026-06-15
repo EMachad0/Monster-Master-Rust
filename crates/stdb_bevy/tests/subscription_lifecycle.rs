@@ -2,7 +2,7 @@
 //!
 //! These prove a real Game can build a subscription-enabled plugin, declare a `Subscription` by
 //! spawning it, and observe it apply — and that the `is_subscriptions_settled` fence tracks that
-//! state — using only public items (`StdbPlugin::with_subscriptions`, the `FakeDriver` fake,
+//! state — using only public items (`StdbPlugin::new`, the `FakeDriver` fake,
 //! `Subscription`, `AppliedSubscription`, `SubscriptionApplied`, `is_subscriptions_settled`), with
 //! no access to crate internals.
 
@@ -18,9 +18,7 @@ use stdb_bevy::{
 /// the `Time` the reconnect engine needs.
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins(
-        StdbPlugin::new(FakeDriver::default()).with_subscriptions(FakeDriver::default()),
-    );
+    app.add_plugins(StdbPlugin::new(FakeDriver::default())); // subscriptions on by default
     app.insert_resource(Time::<()>::default());
     app
 }

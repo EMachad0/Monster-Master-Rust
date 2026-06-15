@@ -63,11 +63,25 @@ pub enum StdbSystemSet {
 
 /// Wires a SpacetimeDB connection into a Bevy `App`:
 #[derive(Default)]
-pub struct StdbPlugin<Cd: StdbConnectionDriver, Sd = NoSubscriptions> {
+pub struct StdbPlugin<Cd: StdbConnectionDriver, Sd = Cd> {
     conn_driver: Cd,
     sub_driver: Sd,
     connect_on_startup: bool,
     tables: Vec<TableRegistration<Cd::Conn>>,
+}
+
+impl<D> StdbPlugin<D, D>
+where
+    D: StdbConnectionDriver + StdbSubscriptionDriver,
+{
+    pub fn new(driver: D) -> Self {
+        Self {
+            conn_driver: driver.clone(),
+            sub_driver: driver,
+            connect_on_startup: false,
+            tables: Vec::new(),
+        }
+    }
 }
 
 impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
@@ -82,19 +96,6 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
     ) -> Self {
         self.tables.extend(registrators);
         self
-    }
-
-    // type-changing builder; the bound enforces shared Conn at compile time
-    pub fn with_subscriptions<Sd2>(self, sub_driver: Sd2) -> StdbPlugin<Cd, Sd2>
-    where
-        Sd2: StdbSubscriptionDriver<Conn = Cd::Conn>,
-    {
-        StdbPlugin {
-            conn_driver: self.conn_driver,
-            sub_driver,
-            connect_on_startup: self.connect_on_startup,
-            tables: self.tables,
-        }
     }
 
     fn build_lifecyle_app(&self, app: &mut bevy::app::App) {
@@ -167,12 +168,24 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
 }
 
 impl<Cd: StdbConnectionDriver> StdbPlugin<Cd, NoSubscriptions> {
-    pub fn new(conn_driver: Cd) -> Self {
+    pub fn connection(conn_driver: Cd) -> Self {
         Self {
             conn_driver,
             sub_driver: NoSubscriptions,
             connect_on_startup: false,
             tables: Vec::new(),
+        }
+    }
+
+    pub fn with_subscription<Sd>(self, sub_driver: Sd) -> StdbPlugin<Cd, Sd>
+    where
+        Sd: StdbSubscriptionDriver<Conn = Cd::Conn>,
+    {
+        StdbPlugin {
+            conn_driver: self.conn_driver,
+            sub_driver,
+            connect_on_startup: self.connect_on_startup,
+            tables: self.tables,
         }
     }
 }
@@ -182,6 +195,15 @@ where
     Cd: StdbConnectionDriver,
     Sd: StdbSubscriptionDriver<Conn = Cd::Conn>,
 {
+    pub fn drivers(conn_driver: Cd, sub_driver: Sd) -> Self {
+        Self {
+            conn_driver,
+            sub_driver,
+            connect_on_startup: false,
+            tables: Vec::new(),
+        }
+    }
+
     fn build_subscription_app(&self, app: &mut bevy::app::App) {
         app.init_resource::<SubscriptionChannel>();
         app.insert_resource(self.sub_driver.clone());
@@ -207,7 +229,7 @@ where
     }
 }
 
-impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd> {
+impl<Cd: StdbConnectionDriver> bevy::app::Plugin for StdbPlugin<Cd, NoSubscriptions> {
     fn build(&self, app: &mut bevy::app::App) {
         self.build(app);
     }
