@@ -1,5 +1,3 @@
-use std::sync::atomic::AtomicU64;
-
 use bevy::{ecs::resource::Resource, platform::collections::HashMap};
 use spacetimedb_sdk::{DbContext, SubscriptionHandle};
 
@@ -14,7 +12,7 @@ where
     C: SdkDbConnection<Module = M>,
     M::SubscriptionHandle: Send + Sync,
 {
-    pub id_mint: std::sync::atomic::AtomicU64,
+    pub id_mint: u64,
     pub subscription_handles: HashMap<SubscriptionId, M::SubscriptionHandle>,
 }
 
@@ -26,7 +24,7 @@ where
 {
     pub fn new() -> Self {
         Self {
-            id_mint: std::sync::atomic::AtomicU64::default(),
+            id_mint: 0,
             subscription_handles: HashMap::default(),
         }
     }
@@ -49,9 +47,8 @@ where
         subscription: &crate::subscription::subscription_components::Subscription,
     ) -> SubscriptionId {
         let subscription_id = {
-            let id = self.id_mint.get_mut();
-            let old_id = *id;
-            *id = old_id + 1;
+            let old_id = self.id_mint;
+            self.id_mint = old_id + 1;
             SubscriptionId::new(old_id)
         };
 
@@ -78,8 +75,9 @@ where
         subscription_id
     }
 
-    fn unsubscribe(&mut self, _sink: crate::SubscriptionSink, subscription_id: &SubscriptionId) {
+    fn unsubscribe(&mut self, sink: crate::SubscriptionSink, subscription_id: &SubscriptionId) {
         if let Some(handle) = self.subscription_handles.remove(subscription_id) {
+            sink.unsubscribe();
             handle.unsubscribe().unwrap_or_else(|err| {
                 bevy::log::error!("error while unsubscribing {}", err);
             });
@@ -110,7 +108,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            id_mint: AtomicU64::new(0),
+            id_mint: 0,
             subscription_handles: self.subscription_handles.clone(),
         }
     }

@@ -30,3 +30,20 @@ impl SubscriptionFailed {
         Self { entity, error }
     }
 }
+
+#[derive(EntityEvent)]
+pub struct SubscriptionUnsubscribed {
+    pub entity: Entity,
+}
+
+impl SubscriptionUnsubscribed {
+    pub fn new(entity: Entity) -> Self {
+        Self { entity }
+    }
+}
+
+impl From<Entity> for SubscriptionUnsubscribed {
+    fn from(value: Entity) -> Self {
+        Self::new(value)
+    }
+}

@@ -6,12 +6,16 @@ use bevy::ecs::{
 
 use crate::{
     StdbBevyError, SubscriptionApplied, SubscriptionFailed,
-    subscription::subscription_components::{AppliedSubscription, FailedSubscription},
+    subscription::{
+        subscription_components::{AppliedSubscription, FailedSubscription},
+        subscription_events::SubscriptionUnsubscribed,
+    },
 };
 
 pub enum SubscriptionEvent {
     Applied(Entity),
     Error(Entity, StdbBevyError),
+    Unsubscribe(Entity),
 }
 
 #[derive(Clone)]
@@ -32,8 +36,14 @@ impl SubscriptionSink {
     pub fn error(&self, error: StdbBevyError) {
         self.sender
             .send(SubscriptionEvent::Error(self.entity, error))
+            .unwrap_or_else(|err| bevy::log::error!("SubscriptionSink error sender error {}", err));
+    }
+
+    pub fn unsubscribe(&self) {
+        self.sender
+            .send(SubscriptionEvent::Unsubscribe(self.entity))
             .unwrap_or_else(|err| {
-                bevy::log::error!("SubscriptionSink applied sender error {}", err)
+                bevy::log::error!("SubscriptionSink unsubscribe sender error {}", err)
             });
     }
 }
@@ -84,6 +94,11 @@ pub(crate) fn drain_subscription_sink(
                         .trigger(|entity| SubscriptionFailed::new(entity, error));
                 }
             }
+            SubscriptionEvent::Unsubscribe(entity) => {
+                if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+                    commands.trigger(SubscriptionUnsubscribed::new);
+                }
+            }
         }
     }
 }
@@ -99,6 +114,9 @@ mod tests {
 
     #[derive(Resource, Default)]
     struct FailedTargets(Vec<(Entity, String)>);
+
+    #[derive(Resource, Default)]
+    struct UnsubscribedTargets(Vec<Entity>);
 
     /// A minimal app: the subscription channel + its drain + observers recording every
     /// `SubscriptionApplied` / `SubscriptionFailed` target. The drain is fed directly through the
@@ -119,7 +137,49 @@ mod tests {
                 targets.0.push((on.entity, on.error.to_string()));
             },
         );
+        app.init_resource::<UnsubscribedTargets>();
+        app.add_observer(
+            |on: On<SubscriptionUnsubscribed>, mut targets: ResMut<UnsubscribedTargets>| {
+                targets.0.push(on.entity);
+            },
+        );
         app
+    }
+
+    #[test]
+    fn unsubscribe_fires_subscription_unsubscribed_for_a_live_entity() {
+        let mut app = drain_app();
+        let entity = app.world_mut().spawn_empty().id();
+
+        let sink = app.world().resource::<SubscriptionChannel>().sink(entity);
+        sink.unsubscribe();
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<UnsubscribedTargets>().0,
+            vec![entity],
+            "an unsubscribe signal must fire SubscriptionUnsubscribed for a live entity",
+        );
+    }
+
+    #[test]
+    fn unsubscribe_for_a_despawned_entity_is_ignored() {
+        // The despawn path never delivers it (the entity is gone by drain time); the event only
+        // reaches a subscription whose entity outlives a bare `Subscription` removal.
+        let mut app = drain_app();
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().entity_mut(entity).despawn();
+
+        let sink = app.world().resource::<SubscriptionChannel>().sink(entity);
+        sink.unsubscribe();
+
+        app.update(); // must not panic
+
+        assert!(
+            app.world().resource::<UnsubscribedTargets>().0.is_empty(),
+            "an unsubscribe signal for a despawned entity must be ignored",
+        );
     }
 
     #[test]

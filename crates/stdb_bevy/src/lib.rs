@@ -17,9 +17,7 @@ use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
-use crate::subscription::subscription_channel::{
-    SubscriptionChannel, SubscriptionSink, drain_subscription_sink,
-};
+use crate::subscription::subscription_channel::{SubscriptionChannel, drain_subscription_sink};
 use crate::subscription::subscription_components::{
     reset_subscriptions_on_stdbdisconnected, subscribe_pending_subscriptions,
     unsubscribe_on_subscription_despawn,
@@ -43,11 +41,14 @@ pub use crate::sdk_impl::{
 pub use crate::subscription::stdb_subscription_driver::{
     NoSubscriptions, StdbSubscriptionDriver, SubscriptionId,
 };
+pub use crate::subscription::subscription_channel::SubscriptionSink;
 pub use crate::subscription::subscription_components::{
     AppliedSubscription, FailedSubscription, IssuedSubscription, Subscription,
     is_subscriptions_settled,
 };
-pub use crate::subscription::subscription_events::{SubscriptionApplied, SubscriptionFailed};
+pub use crate::subscription::subscription_events::{
+    SubscriptionApplied, SubscriptionFailed, SubscriptionUnsubscribed,
+};
 pub use crate::utils::backoff::{Backoff, Jitter};
 pub use spacetimedb_sdk as __sdk;
 
@@ -170,7 +171,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         }
     }
 
-    fn build_recconect_app(&self, app: &mut bevy::app::App) {
+    fn build_reconnect_app(&self, app: &mut bevy::app::App) {
         app.init_resource::<ReconnectPolicy>();
         app.init_resource::<ReconnectState>();
 
@@ -192,7 +193,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
 
     pub(crate) fn build_connection(&self, app: &mut bevy::app::App) {
         self.build_lifecyle_app(app);
-        self.build_recconect_app(app);
+        self.build_reconnect_app(app);
         self.build_tables_app(app);
     }
 }

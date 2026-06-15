@@ -27,6 +27,7 @@ mod tests {
     use bevy::ecs::{observer::On, resource::Resource, system::ResMut};
 
     use crate::{
+        StdbStatus,
         lifecycle::lifecycle_channel::LifecycleChannel,
         test_support::{FakeConn, FakeDriver, test_app},
     };
@@ -59,7 +60,12 @@ mod tests {
         assert_eq!(
             format!("{}", error.unwrap()),
             "Connection Refused",
-            "the StdbConnectionError observer should fire carrying the error message",
+            "the StdbBevyErrorEvent observer should fire carrying the error message",
+        );
+        assert_eq!(
+            *app.world().resource::<StdbStatus>(),
+            StdbStatus::Disconnected,
+            "a connection error must leave the status Disconnected",
         );
     }
 }

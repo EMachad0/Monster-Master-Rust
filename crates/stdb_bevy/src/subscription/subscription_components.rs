@@ -5,7 +5,7 @@ use crate::{
     subscription::subscription_channel::SubscriptionChannel,
 };
 
-#[derive(Debug, Default, Component)]
+#[derive(Debug, Component)]
 pub struct Subscription(Box<[String]>);
 
 impl Subscription {
@@ -65,10 +65,8 @@ pub(crate) fn subscribe_pending_subscriptions<Sd: StdbSubscriptionDriver>(
     mut commands: Commands,
 ) {
     for (entity, subscription) in subscriptions.iter() {
-        let handle = driver.subscribe(&conn, channel.sink(entity), subscription);
-        commands
-            .entity(entity)
-            .insert(IssuedSubscription::new(handle));
+        let id = driver.subscribe(&conn, channel.sink(entity), subscription);
+        commands.entity(entity).insert(IssuedSubscription::new(id));
     }
 }
 
@@ -195,8 +193,8 @@ mod tests {
         app.update();
         app.update();
 
-        // Idempotency as a world invariant: an issued sub carries SubscriptionHandle, so the
-        // reconcile's `Without<SubscriptionHandle>` filter can never pick it up again. If the
+        // Idempotency as a world invariant: an issued sub carries IssuedSubscription, so the
+        // reconcile's `Without<IssuedSubscription>` filter can never pick it up again. If the
         // marker were not inserted, the sub would stay pending here.
         let mut pending = app
             .world_mut()
