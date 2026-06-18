@@ -94,7 +94,7 @@ pub enum ReconnectAction {
     GiveUp,
 }
 
-pub fn reset_reconnectstate_on_stdbdisconnected(
+pub(crate) fn reset_reconnectstate_on_stdbdisconnected(
     _: On<StdbDisconnected>,
     mut commands: Commands,
     intent: Res<StdbIntent>,

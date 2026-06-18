@@ -24,7 +24,7 @@ use crate::subscription::subscription_components::{
 };
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
-pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
+pub use crate::connection::stdb_connection::{StdbConn, StdbConnection, StdbPreviousConnection};
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
 pub use crate::connection::stdb_token::StdbToken;
 pub use crate::error::{StdbBevyError, StdbBevyErrorEvent};
