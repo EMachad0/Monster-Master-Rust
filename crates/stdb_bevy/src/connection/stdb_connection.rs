@@ -16,7 +16,7 @@ impl<C: StdbConn> std::ops::Deref for StdbConnection<C> {
     }
 }
 
-#[derive(Clone, Resource)]
+#[derive(Resource)]
 pub struct StdbPreviousConnection<C: StdbConn>(pub C);
 
 impl<C: StdbConn> std::ops::Deref for StdbPreviousConnection<C> {
@@ -27,8 +27,6 @@ impl<C: StdbConn> std::ops::Deref for StdbPreviousConnection<C> {
     }
 }
 
-impl<C: StdbConn> From<StdbConnection<C>> for StdbPreviousConnection<C> {
-    fn from(value: StdbConnection<C>) -> Self {
-        Self(value.0)
-    }
+pub(crate) fn resync_messages_on_reconnect<C: StdbConn>(mut commands: Commands) {
+    commands.remove_resource::<StdbPreviousConnection<C>>();
 }

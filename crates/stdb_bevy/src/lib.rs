@@ -4,8 +4,9 @@
 
 use std::fmt::Debug;
 
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy::prelude::*;
 
+use crate::connection::stdb_connection::resync_messages_on_reconnect;
 use crate::connection::stdb_connection_driver::{
     StdbConnectionDriver, connect_on_stdbconnect, disconnect_on_stdbdisconnect,
     tick_stdbconnectiondriver,
@@ -182,6 +183,17 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
             tick_reconnectstate::<Cd>
                 .run_if(should_tick_reconnectstate)
                 .in_set(StdbSystemSet::Main),
+        );
+        app.add_systems(
+            bevy::app::Update,
+            resync_messages_on_reconnect::<Cd::Conn>
+                .run_if(
+                    resource_exists::<StdbPreviousConnection<Cd::Conn>>
+                        .and(is_stdb_connected)
+                        .and(is_subscriptions_settled),
+                )
+                .after(drain_lifecycle_sink::<Cd::Conn>)
+                .in_set(StdbSystemSet::LifecycleEvents),
         );
     }
 

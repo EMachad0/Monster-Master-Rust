@@ -116,8 +116,8 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 mod tests {
     use bevy::prelude::*;
 
-    use crate::StdbPreviousConnection;
     use crate::test_support::{CannedDriver, FakeConn, FakeDriver, test_app};
+    use crate::{StdbPreviousConnection, Subscription};
 
     use super::*;
 
@@ -245,6 +245,10 @@ mod tests {
     fn reconnect_does_not_overwrite_the_baseline() {
         let mut app = test_app(CannedDriver::new(TaggedConn(0)));
 
+        // An in-flight subscription holds the resync window open, so the fence cannot consume the
+        // baseline on reconnect — isolating the Connected arm's "never touch the baseline" behavior.
+        app.world_mut().spawn(Subscription::table("x"));
+
         let sink = app
             .world()
             .resource::<LifecycleChannel<TaggedConn>>()
@@ -273,6 +277,10 @@ mod tests {
     #[test]
     fn flapping_preserves_the_original_baseline() {
         let mut app = test_app(CannedDriver::new(TaggedConn(0)));
+
+        // An in-flight subscription holds the resync window open across the flap, so the fence
+        // cannot consume the baseline — isolating the flapping guard's "keep the original" behavior.
+        app.world_mut().spawn(Subscription::table("x"));
 
         let sink = app
             .world()
