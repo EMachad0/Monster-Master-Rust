@@ -44,6 +44,7 @@ fn capture_gadgets(mut reader: MessageReader<RowInserted<Gadget>>, mut out: ResM
 // Production writes `|conn, fwd| fwd.forward(conn.db().player())`; here we forward from a fake table.
 fn forward_widget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Widget>) {
     fwd.inserts(&FakeTable {
+        rows: vec![],
         inserts: vec![Widget { id: 1 }],
         updates: vec![],
         deletes: vec![],
@@ -52,6 +53,7 @@ fn forward_widget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Widget>) {
 
 fn forward_gadget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Gadget>) {
     fwd.inserts(&FakeTable {
+        rows: vec![],
         inserts: vec![Gadget { id: 2 }],
         updates: vec![],
         deletes: vec![],

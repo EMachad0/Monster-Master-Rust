@@ -47,6 +47,7 @@ impl<R> Default for Canned<R> {
 impl<R: Clone + 'static> Canned<R> {
     fn table(&self) -> FakeTable<R> {
         FakeTable {
+            rows: vec![],
             inserts: self.inserts.clone(),
             updates: self.updates.clone(),
             deletes: self.deletes.clone(),

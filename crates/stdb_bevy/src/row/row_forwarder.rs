@@ -106,6 +106,7 @@ mod tests {
         let sink = app.world().resource::<RowChannel<Widget>>().sink();
 
         RowForwarder::new(sink).forward(&FakeTable {
+            rows: vec![],
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
@@ -129,6 +130,7 @@ mod tests {
 
         // The fake has an update queued, but we only wire inserts + deletes (e.g. a no-PK table).
         let fake = FakeTable {
+            rows: vec![],
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
