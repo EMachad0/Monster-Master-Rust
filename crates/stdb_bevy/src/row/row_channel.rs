@@ -81,6 +81,10 @@ pub(crate) fn drain_row_sink<R: StdbRow>(row_channel: Res<RowChannel<R>>, mut co
     }
 }
 
+pub(crate) fn clear_row_sink<R: StdbRow>(row_channel: Res<RowChannel<R>>) {
+    while row_channel.receiver.try_recv().is_ok() {}
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;

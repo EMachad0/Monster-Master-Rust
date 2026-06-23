@@ -2,9 +2,9 @@ use bevy::prelude::*;
 
 use crate::{
     RowDeleted, RowForwarder, RowInserted, RowUpdated, StdbConn, StdbConnected, StdbConnection,
-    StdbRow, StdbSystemSet,
+    StdbPreviousConnection, StdbRow, StdbSystemSet,
     row::{
-        row_channel::{RowChannel, drain_row_sink},
+        row_channel::{RowChannel, clear_row_sink, drain_row_sink},
         row_messages_resync::{
             drop_stdbpreviousconnection_after_resync, resync_row_messages_system,
         },
@@ -86,7 +86,11 @@ pub(crate) fn add_stdb_table<C, R, T, K>(
 
     app.add_systems(
         bevy::app::Update,
-        drain_row_sink::<R>.in_set(StdbSystemSet::RowMessagesPush),
+        (
+            drain_row_sink::<R>.run_if(not(resource_exists::<StdbPreviousConnection<C>>)),
+            clear_row_sink::<R>.run_if(resource_exists::<StdbPreviousConnection<C>>),
+        )
+            .in_set(StdbSystemSet::RowMessagesPush),
     );
 }
 
