@@ -1,13 +1,11 @@
-use spacetimedb_sdk::Table;
-
 use crate::{
     RowDeleted, RowInserted, RowUpdated, StdbConn, StdbConnection, StdbPreviousConnection, StdbRow,
 };
 use bevy::prelude::*;
 
 #[allow(clippy::type_complexity)]
-pub(crate) fn resync_row_messages_system<C, T, R, K>(
-    accessor: fn(&C) -> T,
+pub(crate) fn resync_row_messages_system<C, R, K>(
+    snapshot: fn(&C) -> Vec<R>,
     get_key: fn(&R) -> K,
 ) -> impl FnMut(
     Res<StdbPreviousConnection<C>>,
@@ -18,19 +16,18 @@ pub(crate) fn resync_row_messages_system<C, T, R, K>(
 )
 where
     C: StdbConn,
-    T: Table<Row = R>,
     R: StdbRow,
     K: Eq + Ord,
 {
     move |previous_conn, conn, mut insert_writer, mut update_writer, mut delete_writer| {
-        let mut old_cache = (accessor)(&previous_conn.0)
-            .iter()
+        let mut old_cache = (snapshot)(&previous_conn.0)
+            .into_iter()
             .map(|row| ((get_key)(&row), row))
             .collect::<Vec<_>>();
         old_cache.sort_by(|(k0, _), (k1, _)| k0.cmp(k1));
         let mut old_cache = old_cache.into_iter().peekable();
-        let mut new_cache = (accessor)(&conn.0)
-            .iter()
+        let mut new_cache = (snapshot)(&conn.0)
+            .into_iter()
             .map(|row| ((get_key)(&row), row))
             .collect::<Vec<_>>();
         new_cache.sort_by(|(k0, _), (k1, _)| k0.cmp(k1));

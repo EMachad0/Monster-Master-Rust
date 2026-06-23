@@ -29,18 +29,18 @@ impl<C: StdbConn> TableRegistration<C> {
         }
     }
 
-    pub fn pk<T, R, K>(accessor: fn(&C) -> T, key: fn(&R) -> K) -> Self
+    pub fn pk<R, K>(
+        forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+        snapshot: fn(&C) -> Vec<R>,
+        key: fn(&R) -> K,
+    ) -> Self
     where
-        T: 'static + spacetimedb_sdk::TableWithPrimaryKey<Row = R>,
         R: StdbRow,
         K: 'static + Eq + Ord,
     {
-        let messages_callback = move |connection: &StdbConnection<C>, fwd: RowForwarder<R>| {
-            fwd.forward(&(accessor)(connection));
-        };
         Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, messages_callback, accessor, key);
+                add_stdb_table(app, forward, snapshot, key);
             }),
             mark: std::marker::PhantomData,
         }
@@ -51,15 +51,14 @@ impl<C: StdbConn> TableRegistration<C> {
     }
 }
 
-pub(crate) fn add_stdb_table<C, R, T, K>(
+pub(crate) fn add_stdb_table<C, R, K>(
     app: &mut bevy::app::App,
-    messages_callback: impl Fn(&StdbConnection<C>, RowForwarder<R>) + 'static + Send + Sync,
-    accessor: fn(&C) -> T,
+    forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+    snapshot: fn(&C) -> Vec<R>,
     key: fn(&R) -> K,
 ) where
     C: StdbConn,
     R: StdbRow,
-    T: 'static + spacetimedb_sdk::Table<Row = R>,
     K: 'static + Eq + Ord,
 {
     let row_channel = RowChannel::new();
@@ -73,13 +72,13 @@ pub(crate) fn add_stdb_table<C, R, T, K>(
     app.add_observer(
         move |_: On<StdbConnected>, connection: Res<StdbConnection<C>>| {
             let fwd = RowForwarder::new(sink.clone());
-            (messages_callback)(&connection, fwd);
+            (forward)(&connection, fwd);
         },
     );
 
     app.add_systems(
         bevy::app::Update,
-        resync_row_messages_system(accessor, key)
+        resync_row_messages_system(snapshot, key)
             .in_set(StdbSystemSet::Resync)
             .before(drop_stdbpreviousconnection_after_resync::<C>),
     );
@@ -96,11 +95,18 @@ pub(crate) fn add_stdb_table<C, R, T, K>(
 
 #[macro_export]
 macro_rules! stdb_table {
-    ($accessor:ident => $row:ty) => {
-        $crate::TableRegistration::new(|conn, fwd: $crate::RowForwarder<$row>| {
-            use $crate::__sdk::DbContext as _;
-            fwd.forward(&conn.db().$accessor());
-        })
+    ($accessor:ident => $row:ty, key = $key:ident) => {
+        $crate::TableRegistration::pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            |row| row.$key.clone(),
+        )
     };
 
     ($accessor:ident => $row:ty, [$($cb:ident),+$(,)?]) => {
@@ -122,4 +128,5 @@ macro_rules! stdb_table {
 
     (@forward $fwd:ident, $conn:ident, $accessor:ident, delete) => {
         $fwd.deletes(&$conn.db().$accessor())
-    };}
+    };
+}

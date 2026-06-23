@@ -11,7 +11,7 @@
 //! baseline and the reconnected connection are independent.
 
 use bevy::prelude::*;
-use stdb_bevy::__sdk::DbContext;
+use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
     RowInserted, StdbConnect, StdbDisconnect, StdbPlugin, StdbSystemSet, TableRegistration,
@@ -65,8 +65,14 @@ fn capture_inserts(mut reader: MessageReader<RowInserted<Player>>, mut out: ResM
 fn app(players: Vec<Player>) -> App {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::connection(CannedDriver::new(conn(players)))
-            .add_tables([TableRegistration::pk(|c| c.db().player(), |p| p.id)]),
+        StdbPlugin::connection(CannedDriver::new(conn(players))).add_tables([
+            // Raw `pk` (no macro), so a direct break can't hide behind the macro path.
+            TableRegistration::pk(
+                |conn, fwd| fwd.forward(&conn.db().player()),
+                |c| c.db().player().iter().collect(),
+                |p| p.id,
+            ),
+        ]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<Inserts>();

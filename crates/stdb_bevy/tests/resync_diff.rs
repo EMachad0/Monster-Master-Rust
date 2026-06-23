@@ -11,7 +11,7 @@
 //! single `update` runs the fence and the per-table diff.
 
 use bevy::prelude::*;
-use stdb_bevy::__sdk::DbContext;
+use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
     RowDeleted, RowInserted, RowUpdated, StdbConnection, StdbPlugin, StdbPreviousConnection,
@@ -79,8 +79,14 @@ fn capture_updates(mut reader: MessageReader<RowUpdated<Player>>, mut out: ResMu
 fn fence_app(old: Vec<Player>, new: Vec<Player>) -> App {
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::connection(CannedDriver::new(conn(vec![])))
-            .add_tables([TableRegistration::pk(|c| c.db().player(), |p| p.id)]),
+        StdbPlugin::connection(CannedDriver::new(conn(vec![]))).add_tables([
+            // Raw `pk` (no macro), so a direct break can't hide behind the macro path.
+            TableRegistration::pk(
+                |conn, fwd| fwd.forward(&conn.db().player()),
+                |c| c.db().player().iter().collect(),
+                |p| p.id,
+            ),
+        ]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<Deletes>();

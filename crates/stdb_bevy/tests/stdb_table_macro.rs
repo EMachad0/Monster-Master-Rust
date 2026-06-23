@@ -1,18 +1,19 @@
-//! End-to-end: the `stdb_table!` macro, driven through the bridge's *public* API only.
+//! End-to-end: the `stdb_table!` PK key form, driven through the bridge's *public* API only.
 //!
-//! `stdb_table!(widget => Widget)` expands to a `TableRegistration` whose registrar calls
-//! `conn.db().widget()`. Here a `FakeDbContext` plays the connection and a hand-written `GameDb`
-//! DbView exposes `widget()` / `gadget()` accessors returning a `FakeTable` of canned rows — the
-//! same shape a generated Bindings `RemoteTables` has, so the macro body runs unchanged.
+//! `stdb_table!(widget => Widget, key = id)` expands to a `TableRegistration::pk` whose registrar
+//! reads `conn.db().widget()` and whose key extractor reads `row.id`. A `FakeDbContext` plays the
+//! connection; a hand-written `GameDb` DbView exposes `widget()` / `gadget()` accessors returning a
+//! `FakeTable` — the same shape a generated `RemoteTables` has, so the macro body runs unchanged.
 //!
-//! The headline property under test: the macro names **no connection type**. `C` is inferred
-//! backward from `add_tables`'s `[TableRegistration<Cd::Conn>; N]` (which is why `add_tables` takes
-//! a concrete array, not `impl IntoIterator`).
+//! Two properties under test: the macro names **no connection type** (`C` is inferred backward from
+//! `add_tables`'s `[TableRegistration<Cd::Conn>; N]`), and the `key =` form wires **both** the live
+//! forwarder and the resync diff (with the generated key extractor).
 
 use bevy::prelude::*;
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
-    RowDeleted, RowInserted, RowUpdated, StdbConnect, StdbPlugin, StdbSystemSet, stdb_table,
+    RowDeleted, RowInserted, RowUpdated, StdbConnect, StdbConnection, StdbPlugin,
+    StdbPreviousConnection, StdbStatus, StdbSystemSet, stdb_table,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -25,10 +26,12 @@ struct Gadget {
     id: u32,
 }
 
-/// Canned rows for one table, materialized into a fresh `FakeTable` on each accessor call (the SDK
-/// accessor likewise returns a fresh handle per call).
+/// Canned contents for one table, materialized into a fresh `FakeTable` on each accessor call (the
+/// SDK accessor likewise returns a fresh handle per call). `rows` is the cache the diff reads; the
+/// callback fields drive the live forwarder.
 #[derive(Clone)]
 struct Canned<R> {
+    rows: Vec<R>,
     inserts: Vec<R>,
     updates: Vec<(R, R)>,
     deletes: Vec<R>,
@@ -37,6 +40,7 @@ struct Canned<R> {
 impl<R> Default for Canned<R> {
     fn default() -> Self {
         Self {
+            rows: Vec::new(),
             inserts: Vec::new(),
             updates: Vec::new(),
             deletes: Vec::new(),
@@ -47,7 +51,7 @@ impl<R> Default for Canned<R> {
 impl<R: Clone + 'static> Canned<R> {
     fn table(&self) -> FakeTable<R> {
         FakeTable {
-            rows: vec![],
+            rows: self.rows.clone(),
             inserts: self.inserts.clone(),
             updates: self.updates.clone(),
             deletes: self.deletes.clone(),
@@ -115,24 +119,24 @@ fn capture_gadget_inserts(
     }
 }
 
-/// `stdb_table!(widget => Widget)` (no callback list) wires all three callbacks: a connect that
-/// dumps an insert, an update, and a delete surfaces one message of each.
+/// The `key =` form wires the full forwarder: on connect, a dumped insert, update, and delete each
+/// surface one message (no resync window on a first connect, so nothing is suppressed).
 #[test]
-#[ignore = "stdb_table! routes to the stubbed TableRegistration::new during the resync migration; \
-            re-enabled when the macro is rewired to ::pk (slice 8) and the keyless form (slice 9)"]
-fn macro_all_callbacks_forwards_insert_update_delete() {
+fn macro_key_form_forwards_insert_update_delete() {
     let conn: Conn = FakeDbContext::new(GameDb {
         widget: Canned {
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
+            ..default()
         },
         ..default()
     });
 
     let mut app = App::new();
     app.add_plugins(
-        StdbPlugin::connection(CannedDriver::new(conn)).add_tables([stdb_table!(widget => Widget)]),
+        StdbPlugin::connection(CannedDriver::new(conn))
+            .add_tables([stdb_table!(widget => Widget, key = id)]),
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<WidgetInserts>();
@@ -150,22 +154,108 @@ fn macro_all_callbacks_forwards_insert_update_delete() {
 
     app.world_mut().trigger(StdbConnect);
     app.update();
+
+    assert_eq!(
+        app.world().resource::<WidgetInserts>().0,
+        vec![Widget { id: 1 }],
+        "the key form must wire on_insert",
+    );
+    assert_eq!(
+        app.world().resource::<WidgetUpdates>().0,
+        vec![(Widget { id: 1 }, Widget { id: 2 })],
+        "the key form must wire on_update",
+    );
+    assert_eq!(
+        app.world().resource::<WidgetDeletes>().0,
+        vec![Widget { id: 3 }],
+        "the key form must wire on_delete",
+    );
+}
+
+/// The headline ergonomic: many heterogeneous tables declared in one `add_tables([..])`, the
+/// connection type named **zero times** — `C` is inferred backward from `Cd::Conn`.
+#[test]
+fn add_tables_takes_many_macro_tables_without_naming_the_connection_type() {
+    let conn: Conn = FakeDbContext::new(GameDb {
+        widget: Canned {
+            inserts: vec![Widget { id: 1 }],
+            ..default()
+        },
+        gadget: Canned {
+            inserts: vec![Gadget { id: 2 }],
+            ..default()
+        },
+    });
+
+    let mut app = App::new();
+    app.add_plugins(StdbPlugin::connection(CannedDriver::new(conn)).add_tables([
+        stdb_table!(widget => Widget, key = id),
+        stdb_table!(gadget => Gadget, key = id),
+    ]));
+    app.insert_resource(Time::<()>::default());
+    app.init_resource::<WidgetInserts>();
+    app.init_resource::<GadgetInserts>();
+    app.add_systems(
+        Update,
+        (capture_widget_inserts, capture_gadget_inserts).in_set(StdbSystemSet::Main),
+    );
+
+    app.world_mut().trigger(StdbConnect);
     app.update();
 
     assert_eq!(
         app.world().resource::<WidgetInserts>().0,
         vec![Widget { id: 1 }],
-        "no-list form must wire on_insert",
+        "the first macro-declared table forwards on connect",
     );
     assert_eq!(
-        app.world().resource::<WidgetUpdates>().0,
-        vec![(Widget { id: 1 }, Widget { id: 2 })],
-        "no-list form must wire on_update",
+        app.world().resource::<GadgetInserts>().0,
+        vec![Gadget { id: 2 }],
+        "every other macro-declared table forwards on connect too",
     );
+}
+
+/// The `key =` form wires the resync diff too, using the **generated key extractor**: at the fence
+/// a row gone from the fresh cache (`old ∉ new`, correlated by `id`) surfaces as a ghost delete. A
+/// wrong-field extractor would not show in the forward-only tests above.
+#[test]
+fn macro_key_form_emits_a_ghost_delete_at_the_fence() {
+    let old: Conn = FakeDbContext::new(GameDb {
+        widget: Canned {
+            rows: vec![Widget { id: 1 }, Widget { id: 2 }],
+            ..default()
+        },
+        ..default()
+    });
+    let new: Conn = FakeDbContext::new(GameDb {
+        widget: Canned {
+            rows: vec![Widget { id: 1 }],
+            ..default()
+        },
+        ..default()
+    });
+
+    let mut app = App::new();
+    app.add_plugins(
+        StdbPlugin::connection(CannedDriver::new(FakeDbContext::new(GameDb::default())))
+            .add_tables([stdb_table!(widget => Widget, key = id)]),
+    );
+    app.insert_resource(Time::<()>::default());
+    app.init_resource::<WidgetDeletes>();
+    app.add_systems(Update, capture_widget_deletes.in_set(StdbSystemSet::Main));
+
+    // Post-reconnect fence state: baseline holds {1,2}, the fresh snapshot only {1}.
+    app.insert_resource(StdbPreviousConnection(old));
+    app.insert_resource(StdbConnection(new));
+    app.insert_resource(StdbStatus::Connected);
+
+    app.update();
+
     assert_eq!(
         app.world().resource::<WidgetDeletes>().0,
-        vec![Widget { id: 3 }],
-        "no-list form must wire on_delete",
+        vec![Widget { id: 2 }],
+        "the macro's key extractor must correlate by id, so the row gone from the snapshot is a \
+         ghost delete",
     );
 }
 
@@ -173,14 +263,15 @@ fn macro_all_callbacks_forwards_insert_update_delete() {
 /// an update queued, but no `RowUpdated` must surface — also the shape a no-PK table uses, since the
 /// SDK only offers `on_update` on primary-key tables.
 #[test]
-#[ignore = "stdb_table! routes to the stubbed TableRegistration::new during the resync migration; \
-            re-enabled when the macro is rewired to ::pk (slice 8) and the keyless form (slice 9)"]
+#[ignore = "the [insert, delete] subset form still routes to the stubbed TableRegistration::new; \
+            re-enabled when it is rewired to the keyless diff (slice 9)"]
 fn macro_selection_wires_only_listed_callbacks() {
     let conn: Conn = FakeDbContext::new(GameDb {
         widget: Canned {
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
+            ..default()
         },
         ..default()
     });
@@ -221,51 +312,5 @@ fn macro_selection_wires_only_listed_callbacks() {
     assert!(
         app.world().resource::<WidgetUpdates>().0.is_empty(),
         "[insert, delete] must NOT wire on_update, so no RowUpdated surfaces",
-    );
-}
-
-/// The headline ergonomic: many heterogeneous tables declared in one `add_tables([..])`, the
-/// connection type named **zero times** — `C` is inferred backward from `Cd::Conn`.
-#[test]
-#[ignore = "stdb_table! routes to the stubbed TableRegistration::new during the resync migration; \
-            re-enabled when the macro is rewired to ::pk (slice 8) and the keyless form (slice 9)"]
-fn add_tables_takes_many_macro_tables_without_naming_the_connection_type() {
-    let conn: Conn = FakeDbContext::new(GameDb {
-        widget: Canned {
-            inserts: vec![Widget { id: 1 }],
-            ..default()
-        },
-        gadget: Canned {
-            inserts: vec![Gadget { id: 2 }],
-            ..default()
-        },
-    });
-
-    let mut app = App::new();
-    app.add_plugins(
-        StdbPlugin::connection(CannedDriver::new(conn))
-            .add_tables([stdb_table!(widget => Widget), stdb_table!(gadget => Gadget)]),
-    );
-    app.insert_resource(Time::<()>::default());
-    app.init_resource::<WidgetInserts>();
-    app.init_resource::<GadgetInserts>();
-    app.add_systems(
-        Update,
-        (capture_widget_inserts, capture_gadget_inserts).in_set(StdbSystemSet::Main),
-    );
-
-    app.world_mut().trigger(StdbConnect);
-    app.update();
-    app.update();
-
-    assert_eq!(
-        app.world().resource::<WidgetInserts>().0,
-        vec![Widget { id: 1 }],
-        "the first macro-declared table forwards on connect",
-    );
-    assert_eq!(
-        app.world().resource::<GadgetInserts>().0,
-        vec![Gadget { id: 2 }],
-        "every other macro-declared table forwards on connect too",
     );
 }
