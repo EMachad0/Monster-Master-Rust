@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use stdb_bevy::__sdk::DbContext;
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
-    RowDeleted, StdbConnection, StdbPlugin, StdbPreviousConnection, StdbStatus, StdbSystemSet,
-    TableRegistration,
+    RowDeleted, RowInserted, RowUpdated, StdbConnection, StdbPlugin, StdbPreviousConnection,
+    StdbStatus, StdbSystemSet, TableRegistration,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -52,10 +52,24 @@ fn conn(players: Vec<Player>) -> Conn {
 
 #[derive(Resource, Default)]
 struct Deletes(Vec<Player>);
+#[derive(Resource, Default)]
+struct Inserts(Vec<Player>);
+#[derive(Resource, Default)]
+struct Updates(Vec<(Player, Player)>);
 
 fn capture_deletes(mut reader: MessageReader<RowDeleted<Player>>, mut out: ResMut<Deletes>) {
     for msg in reader.read() {
         out.0.push(msg.0.clone());
+    }
+}
+fn capture_inserts(mut reader: MessageReader<RowInserted<Player>>, mut out: ResMut<Inserts>) {
+    for msg in reader.read() {
+        out.0.push(msg.0.clone());
+    }
+}
+fn capture_updates(mut reader: MessageReader<RowUpdated<Player>>, mut out: ResMut<Updates>) {
+    for msg in reader.read() {
+        out.0.push((msg.old.clone(), msg.new.clone()));
     }
 }
 
@@ -70,7 +84,12 @@ fn fence_app(old: Vec<Player>, new: Vec<Player>) -> App {
     );
     app.insert_resource(Time::<()>::default());
     app.init_resource::<Deletes>();
-    app.add_systems(Update, capture_deletes.in_set(StdbSystemSet::Main));
+    app.init_resource::<Inserts>();
+    app.init_resource::<Updates>();
+    app.add_systems(
+        Update,
+        (capture_deletes, capture_inserts, capture_updates).in_set(StdbSystemSet::Main),
+    );
 
     app.insert_resource(StdbPreviousConnection(conn(old)));
     app.insert_resource(StdbConnection(conn(new)));
@@ -78,10 +97,22 @@ fn fence_app(old: Vec<Player>, new: Vec<Player>) -> App {
     app
 }
 
-/// Deletes captured this run, sorted by id (the diff's map iteration order is unspecified).
+/// Deletes captured this run, sorted by id (the diff's iteration order is unspecified).
 fn deletes_sorted(app: &App) -> Vec<Player> {
     let mut got = app.world().resource::<Deletes>().0.clone();
     got.sort_by_key(|p| p.id);
+    got
+}
+
+fn inserts_sorted(app: &App) -> Vec<Player> {
+    let mut got = app.world().resource::<Inserts>().0.clone();
+    got.sort_by_key(|p| p.id);
+    got
+}
+
+fn updates_sorted(app: &App) -> Vec<(Player, Player)> {
+    let mut got = app.world().resource::<Updates>().0.clone();
+    got.sort_by_key(|(_, new)| new.id);
     got
 }
 
@@ -130,7 +161,7 @@ fn a_narrowed_subscription_deletes_every_ghost() {
 
 #[test]
 fn a_new_row_is_not_deleted() {
-    // C appeared during the outage (a genuine insert); only deletes are emitted this slice.
+    // C appeared during the outage (a genuine insert); it must not surface as a ghost delete.
     let mut app = fence_app(vec![player(1, "a")], vec![player(1, "a"), player(3, "c")]);
 
     app.update();
@@ -138,5 +169,87 @@ fn a_new_row_is_not_deleted() {
     assert!(
         deletes_sorted(&app).is_empty(),
         "a row new to the fresh snapshot is an insert, not a ghost — it must not be deleted",
+    );
+}
+
+#[test]
+fn a_changed_row_emits_an_update_with_both_bodies() {
+    // Same key, changed body: a row updated server-side during the outage.
+    let mut app = fence_app(vec![player(1, "old")], vec![player(1, "new")]);
+
+    app.update();
+
+    assert_eq!(
+        updates_sorted(&app),
+        vec![(player(1, "old"), player(1, "new"))],
+        "a row whose body changed under the same key is an update carrying old (from the baseline) \
+         and new (from the fresh snapshot)",
+    );
+    assert!(
+        deletes_sorted(&app).is_empty() && inserts_sorted(&app).is_empty(),
+        "a changed row is an update only — never a delete or insert",
+    );
+}
+
+#[test]
+fn an_unchanged_row_emits_nothing() {
+    let mut app = fence_app(vec![player(1, "a")], vec![player(1, "a")]);
+
+    app.update();
+
+    assert!(
+        updates_sorted(&app).is_empty()
+            && deletes_sorted(&app).is_empty()
+            && inserts_sorted(&app).is_empty(),
+        "a row identical in both caches is unchanged — it must emit no message at all",
+    );
+}
+
+#[test]
+fn only_the_changed_row_updates() {
+    // A unchanged, B changed.
+    let mut app = fence_app(
+        vec![player(1, "a"), player(2, "b")],
+        vec![player(1, "a"), player(2, "b2")],
+    );
+
+    app.update();
+
+    assert_eq!(
+        updates_sorted(&app),
+        vec![(player(2, "b"), player(2, "b2"))],
+        "only the row whose body changed updates; the identical row emits nothing",
+    );
+}
+
+#[test]
+fn a_new_row_emits_an_insert() {
+    // C appeared server-side during the outage.
+    let mut app = fence_app(vec![player(1, "a")], vec![player(1, "a"), player(3, "c")]);
+
+    app.update();
+
+    assert_eq!(
+        inserts_sorted(&app),
+        vec![player(3, "c")],
+        "a row present only in the fresh snapshot is a genuine insert",
+    );
+    assert!(
+        deletes_sorted(&app).is_empty(),
+        "a genuine insert must not also surface as a delete",
+    );
+}
+
+#[test]
+fn a_widened_subscription_inserts_everything() {
+    // The subscription widened during the outage: the baseline was empty, the snapshot brings rows.
+    let mut app = fence_app(vec![], vec![player(1, "a"), player(2, "b")]);
+
+    app.update();
+
+    assert_eq!(
+        inserts_sorted(&app),
+        vec![player(1, "a"), player(2, "b")],
+        "every row in the fresh snapshot but absent from the baseline is an insert",
     );
 }

@@ -22,7 +22,7 @@ where
     R: StdbRow,
     K: Eq + Ord,
 {
-    move |previous_conn, conn, mut insert_writer, mut _update_writer, mut delete_writer| {
+    move |previous_conn, conn, mut insert_writer, mut update_writer, mut delete_writer| {
         let mut old_cache = (accessor)(&previous_conn.0)
             .iter()
             .map(|row| ((get_key)(&row), row))
@@ -44,8 +44,11 @@ where
                         delete_writer.write(RowDeleted(old));
                     }
                     std::cmp::Ordering::Equal => {
-                        let (_, _old) = old_cache.next().unwrap();
-                        let (_, _new) = new_cache.next().unwrap();
+                        let (_, old) = old_cache.next().unwrap();
+                        let (_, new) = new_cache.next().unwrap();
+                        if old != new {
+                            update_writer.write(RowUpdated { old, new });
+                        }
                     }
                     std::cmp::Ordering::Greater => {
                         let (_, new) = new_cache.next().unwrap();

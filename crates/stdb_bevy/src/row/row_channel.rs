@@ -5,9 +5,9 @@ use bevy::ecs::{
 
 use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
 
-pub trait StdbRow: 'static + Send + Sync + Clone {}
+pub trait StdbRow: 'static + Send + Sync + Clone + PartialEq {}
 
-impl<R> StdbRow for R where R: 'static + Send + Sync + Clone {}
+impl<R> StdbRow for R where R: 'static + Send + Sync + Clone + PartialEq {}
 
 pub enum RowEvent<R> {
     Insert(R),
