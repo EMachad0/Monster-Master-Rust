@@ -26,7 +26,3 @@ impl<C: StdbConn> std::ops::Deref for StdbPreviousConnection<C> {
         &self.0
     }
 }
-
-pub(crate) fn resync_messages_on_reconnect<C: StdbConn>(mut commands: Commands) {
-    commands.remove_resource::<StdbPreviousConnection<C>>();
-}

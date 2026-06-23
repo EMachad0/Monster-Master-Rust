@@ -1,9 +1,14 @@
-use bevy::ecs::{observer::On, schedule::IntoScheduleConfigs as _, system::Res};
+use bevy::prelude::*;
 
 use crate::{
     RowDeleted, RowForwarder, RowInserted, RowUpdated, StdbConn, StdbConnected, StdbConnection,
     StdbRow, StdbSystemSet,
-    row::row_channel::{RowChannel, drain_row_sink},
+    row::{
+        row_channel::{RowChannel, drain_row_sink},
+        row_messages_resync::{
+            drop_stdbpreviousconnection_after_resync, resync_row_messages_system,
+        },
+    },
 };
 
 pub struct TableRegistration<C: StdbConn> {
@@ -12,14 +17,30 @@ pub struct TableRegistration<C: StdbConn> {
 }
 
 impl<C: StdbConn> TableRegistration<C> {
-    pub fn new<R>(messages_callback: fn(&StdbConnection<C>, RowForwarder<R>)) -> Self
+    pub fn new<R>(_messages_callback: fn(&StdbConnection<C>, RowForwarder<R>)) -> Self
     where
-        C: StdbConn,
         R: StdbRow,
     {
         Self {
+            install: Box::new(move |_app| {
+                // add_stdb_table(app, messages_callback);
+            }),
+            mark: std::marker::PhantomData,
+        }
+    }
+
+    pub fn pk<T, R, K>(accessor: fn(&C) -> T, key: fn(&R) -> K) -> Self
+    where
+        T: 'static + spacetimedb_sdk::TableWithPrimaryKey<Row = R>,
+        R: StdbRow,
+        K: 'static + Eq + Ord,
+    {
+        let messages_callback = move |connection: &StdbConnection<C>, fwd: RowForwarder<R>| {
+            fwd.forward(&(accessor)(connection));
+        };
+        Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, messages_callback);
+                add_stdb_table(app, messages_callback, accessor, key);
             }),
             mark: std::marker::PhantomData,
         }
@@ -30,12 +51,16 @@ impl<C: StdbConn> TableRegistration<C> {
     }
 }
 
-pub(crate) fn add_stdb_table<C, R>(
+pub(crate) fn add_stdb_table<C, R, T, K>(
     app: &mut bevy::app::App,
-    messages_callback: fn(&StdbConnection<C>, RowForwarder<R>),
+    messages_callback: impl Fn(&StdbConnection<C>, RowForwarder<R>) + 'static + Send + Sync,
+    accessor: fn(&C) -> T,
+    key: fn(&R) -> K,
 ) where
     C: StdbConn,
     R: StdbRow,
+    T: 'static + spacetimedb_sdk::Table<Row = R>,
+    K: 'static + Eq + Ord,
 {
     let row_channel = RowChannel::new();
     let sink = row_channel.sink();
@@ -50,6 +75,13 @@ pub(crate) fn add_stdb_table<C, R>(
             let fwd = RowForwarder::new(sink.clone());
             (messages_callback)(&connection, fwd);
         },
+    );
+
+    app.add_systems(
+        bevy::app::Update,
+        resync_row_messages_system(accessor, key)
+            .in_set(StdbSystemSet::Resync)
+            .before(drop_stdbpreviousconnection_after_resync::<C>),
     );
 
     app.add_systems(

@@ -6,7 +6,6 @@ use std::fmt::Debug;
 
 use bevy::prelude::*;
 
-use crate::connection::stdb_connection::resync_messages_on_reconnect;
 use crate::connection::stdb_connection_driver::{
     StdbConnectionDriver, connect_on_stdbconnect, disconnect_on_stdbdisconnect,
     tick_stdbconnectiondriver,
@@ -18,6 +17,7 @@ use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
+use crate::row::row_messages_resync::drop_stdbpreviousconnection_after_resync;
 use crate::subscription::subscription_channel::{SubscriptionChannel, drain_subscription_sink};
 use crate::subscription::subscription_components::{
     reset_subscriptions_on_stdbdisconnected, subscribe_pending_subscriptions,
@@ -65,6 +65,7 @@ mod utils;
 pub enum StdbSystemSet {
     LifecycleEvents,
     RowMessagesPush,
+    Resync,
     Main,
 }
 
@@ -147,6 +148,11 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
             (
                 StdbSystemSet::LifecycleEvents,
                 StdbSystemSet::RowMessagesPush,
+                StdbSystemSet::Resync.run_if(
+                    resource_exists::<StdbPreviousConnection<Cd::Conn>>
+                        .and(is_stdb_connected)
+                        .and(is_subscriptions_settled),
+                ),
                 StdbSystemSet::Main,
             )
                 .chain(),
@@ -186,14 +192,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         );
         app.add_systems(
             bevy::app::Update,
-            resync_messages_on_reconnect::<Cd::Conn>
-                .run_if(
-                    resource_exists::<StdbPreviousConnection<Cd::Conn>>
-                        .and(is_stdb_connected)
-                        .and(is_subscriptions_settled),
-                )
-                .after(drain_lifecycle_sink::<Cd::Conn>)
-                .in_set(StdbSystemSet::LifecycleEvents),
+            drop_stdbpreviousconnection_after_resync::<Cd::Conn>.in_set(StdbSystemSet::Resync),
         );
     }
 

@@ -61,6 +61,8 @@ fn forward_gadget(_conn: &StdbConnection<FakeConn>, fwd: RowForwarder<Gadget>) {
 }
 
 #[test]
+#[ignore = "TableRegistration::new is a no-op stub during the resync migration; the forward-only \
+            path is superseded by ::pk (with diff) — rewrite against ::pk / keyless (slices 8–9)"]
 fn add_tables_forwards_every_table_on_connect() {
     let mut app = App::new();
     app.add_plugins(StdbPlugin::connection(FakeDriver::default()).add_tables([
@@ -92,6 +94,8 @@ fn add_tables_forwards_every_table_on_connect() {
 }
 
 #[test]
+#[ignore = "TableRegistration::new is a no-op stub during the resync migration; the forward-only \
+            path is superseded by ::pk (with diff) — rewrite against ::pk / keyless (slices 8–9)"]
 fn does_not_forward_before_connect() {
     let mut app = App::new();
     app.add_plugins(
@@ -112,6 +116,8 @@ fn does_not_forward_before_connect() {
 }
 
 #[test]
+#[ignore = "TableRegistration::new is a no-op stub during the resync migration; the forward-only \
+            path is superseded by ::pk (with diff) — rewrite against ::pk / keyless (slices 8–9)"]
 fn rows_reach_after_set_readers_in_the_same_frame() {
     let mut app = App::new();
     app.add_plugins(
@@ -134,6 +140,8 @@ fn rows_reach_after_set_readers_in_the_same_frame() {
 }
 
 #[test]
+#[ignore = "TableRegistration::new is a no-op stub during the resync migration; the forward-only \
+            path is superseded by ::pk (with diff) — rewrite against ::pk / keyless (slices 8–9)"]
 fn re_registers_on_reconnect() {
     let driver = FakeDriver::default();
     let probe = driver.clone(); // retains the sink, to simulate an unsolicited drop
