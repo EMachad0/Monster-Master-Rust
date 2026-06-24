@@ -152,8 +152,8 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
                 StdbSystemSet::RowMessagesPush,
                 StdbSystemSet::Resync.run_if(
                     resource_exists::<StdbPreviousConnection<Cd::Conn>>
-                        .and(is_stdb_connected)
-                        .and(is_subscriptions_settled),
+                        .and_then(is_stdb_connected)
+                        .and_then(is_subscriptions_settled),
                 ),
                 StdbSystemSet::Main,
             )
