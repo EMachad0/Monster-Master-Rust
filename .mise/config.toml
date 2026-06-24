@@ -16,6 +16,12 @@ github-cli = "latest"
 # ubi backend did not — `spacetime start` needs the standalone sibling. The command is therefore
 # exposed under its real name, `spacetimedb-cli`.
 "github:clockworklabs/SpacetimeDB" = { version = "2.6.0", exe = "spacetimedb-cli" }
+# worktrunk: the git worktree manager that the `wk` just module wraps. The release archive's
+# binary is named `wt`, not the repo name `worktrunk`, so the github backend needs `exe` to put
+# `wt` on PATH. Pinned to an explicit tag rather than "latest": worktrunk's binary self-reports a
+# version (0.34.x) decoupled from its release tags, and mise derives the locked version from the
+# binary, so "latest" silently resolves to a stale release. Bump this tag to upgrade.
+"github:max-sixty/worktrunk" = { version = "0.61.0", exe = "wt" }
 
 [env]
 

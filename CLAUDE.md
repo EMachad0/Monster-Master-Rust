@@ -11,8 +11,8 @@ A multiplayer game: a **Bevy** client (web via WebAssembly + native desktop) on 
   `spacetimedb-sdk` 2.6. We deliberately do **not** use the `bevy_spacetimedb` crate
   (see `../docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`).
 - **Toolchain:** `rust-toolchain.toml` pins Rust (SpacetimeDB 2.6 needs ≥ 1.93); `mise` installs
-  `just`, `trunk`, and `spacetimedb-cli`. Dependency versions are centralized in the root
-  `Cargo.toml` `[workspace.dependencies]`.
+  `just`, `trunk`, `spacetimedb-cli`, and `worktrunk` (`wt`, the worktree manager). Dependency
+  versions are centralized in the root `Cargo.toml` `[workspace.dependencies]`.
 
 ### Workspace (`crates/`)
 
@@ -28,6 +28,7 @@ Glossary of these terms lives in `../CONTEXT.md`.
 ## Common commands
 
 - `just` — list all recipes (root justfile just imports `.just/` modules)
+- `just wk::new_ui <branch>` — create a worktree off origin/main and open a zellij dev tab (worktrunk-backed; `wk::new` skips the tab, `wk::list` / `wk::rm` inspect or remove)
 - `docker compose up` — start SpacetimeDB locally (port 3000)
 - `just stdb::publish` — build + publish the Module to the server
 - `just stdb::generate` — regenerate `stdb_bindings` (commit the result)
