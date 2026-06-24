@@ -17,7 +17,6 @@ version = "0.1.0"
 bevy = { version = "0.19", default-features = false, features = ["debug", "bevy_log"] }
 spacetimedb = "~2.6"
 spacetimedb-sdk = "~2.6"
-bevy_asset_loader = "0.26"
 getrandom = "0.4"
 log = "0.4"
 wasm-bindgen-futures = "0.4"
