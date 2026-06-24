@@ -28,13 +28,11 @@ pub(crate) fn connect_on_stdbconnect<Cd: StdbConnectionDriver>(
 pub(crate) fn disconnect_on_stdbdisconnect<Cd: StdbConnectionDriver>(
     _: On<StdbDisconnect>,
     driver: Res<Cd>,
-    connection: Option<Res<StdbConnection<Cd::Conn>>>,
+    connection: Res<StdbConnection<Cd::Conn>>,
     lifecycle_channel: Res<LifecycleChannel<Cd::Conn>>,
 ) {
-    if let Some(connection) = connection {
-        let sink = lifecycle_channel.sink();
-        driver.disconnect(&connection, sink);
-    }
+    let sink = lifecycle_channel.sink();
+    driver.disconnect(&connection, sink);
 }
 
 pub(crate) fn tick_stdbconnectiondriver<Cd: StdbConnectionDriver>(

@@ -11,7 +11,8 @@ use crate::connection::stdb_connection_driver::{
     tick_stdbconnectiondriver,
 };
 use crate::connection::stdb_intent::{
-    StdbIntent, update_intent_on_stdbconnect, update_intent_on_stdbdisconnect,
+    StdbIntent, intends_to_be_connected, update_intent_on_stdbconnect,
+    update_intent_on_stdbdisconnect,
 };
 use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink};
 use crate::lifecycle::reconnect::{
@@ -143,7 +144,9 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         app.add_observer(update_intent_on_stdbconnect);
         app.add_observer(update_intent_on_stdbdisconnect);
         app.add_observer(connect_on_stdbconnect::<Cd>);
-        app.add_observer(disconnect_on_stdbdisconnect::<Cd>);
+        app.add_observer(
+            disconnect_on_stdbdisconnect::<Cd>.run_if(resource_exists::<StdbConnection<Cd::Conn>>),
+        );
 
         app.configure_sets(
             bevy::app::Update,
@@ -152,8 +155,8 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
                 StdbSystemSet::RowMessagesPush,
                 StdbSystemSet::Resync.run_if(
                     resource_exists::<StdbPreviousConnection<Cd::Conn>>
-                        .and(is_stdb_connected)
-                        .and(is_subscriptions_settled),
+                        .and_then(is_stdb_connected)
+                        .and_then(is_subscriptions_settled),
                 ),
                 StdbSystemSet::Main,
             )
@@ -184,7 +187,7 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         app.init_resource::<ReconnectPolicy>();
         app.init_resource::<ReconnectState>();
 
-        app.add_observer(reset_reconnectstate_on_stdbdisconnected);
+        app.add_observer(reset_reconnectstate_on_stdbdisconnected.run_if(intends_to_be_connected));
 
         app.add_systems(
             bevy::app::Update,

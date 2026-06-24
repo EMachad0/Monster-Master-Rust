@@ -1,3 +1,4 @@
+use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::resource::Resource;
 
 use crate::{
@@ -19,7 +20,7 @@ impl From<u64> for SubscriptionId {
     }
 }
 
-pub trait StdbSubscriptionDriver: Clone + Resource {
+pub trait StdbSubscriptionDriver: Clone + Resource + Component<Mutability = Mutable> {
     type Conn: StdbConn;
 
     fn subscribe(

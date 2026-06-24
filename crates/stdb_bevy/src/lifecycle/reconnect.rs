@@ -9,6 +9,7 @@ use bevy::ecs::{
 use crate::{
     StdbConnectionDriver, StdbStatus,
     connection::stdb_intent::StdbIntent,
+    intends_to_be_connected,
     lifecycle::{lifecycle_channel::LifecycleChannel, lifecycle_events::StdbDisconnected},
     utils::backoff::{Backoff, Jitter},
 };
@@ -97,11 +98,8 @@ pub enum ReconnectAction {
 pub(crate) fn reset_reconnectstate_on_stdbdisconnected(
     _: On<StdbDisconnected>,
     mut commands: Commands,
-    intent: Res<StdbIntent>,
 ) {
-    if *intent == StdbIntent::Connected {
-        commands.insert_resource(ReconnectState::default());
-    }
+    commands.insert_resource(ReconnectState::default());
 }
 
 pub fn tick_reconnectstate<Cd: StdbConnectionDriver>(
@@ -123,7 +121,7 @@ pub fn tick_reconnectstate<Cd: StdbConnectionDriver>(
 }
 
 pub fn should_tick_reconnectstate(intent: Res<StdbIntent>, status: Res<StdbStatus>) -> bool {
-    *status == StdbStatus::Disconnected && *intent == StdbIntent::Connected
+    *status == StdbStatus::Disconnected && intends_to_be_connected(intent)
 }
 
 #[cfg(test)]
