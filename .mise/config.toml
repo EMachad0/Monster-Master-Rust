@@ -10,12 +10,12 @@ just = "latest"
 github-cli = "latest"
 # trunk-rs (wasm bundler) — NOT mise's default `trunk` (that resolves to the Trunk.io linter)
 "github:trunk-rs/trunk" = "latest"
-# SpacetimeDB CLI — pinned to match the server image, SDK, and module crate (all 2.4.x).
+# SpacetimeDB CLI — pinned to match the server image, SDK, and module crate (all 2.6.x).
 # The release tarball ships two binaries (`spacetimedb-cli` = the `spacetime` command, and
 # `spacetimedb-standalone`); the github backend keeps both side by side, which the single-binary
 # ubi backend did not — `spacetime start` needs the standalone sibling. The command is therefore
 # exposed under its real name, `spacetimedb-cli`.
-"github:clockworklabs/SpacetimeDB" = { version = "2.4.0", exe = "spacetimedb-cli" }
+"github:clockworklabs/SpacetimeDB" = { version = "2.6.0", exe = "spacetimedb-cli" }
 
 [env]
 
