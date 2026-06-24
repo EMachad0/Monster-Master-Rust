@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 
 use crate::{
-    RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated, StdbConn, StdbConnected,
-    StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
+    KeylessMessagesMask, RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated,
+    StdbConn, StdbConnected, StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
     row::{
         row_channel::{RowChannel, clear_row_sink, drain_row_sink},
         row_messages_resync::{
             drop_stdbpreviousconnection_after_resync, resync_row_messages_system,
         },
     },
+    sdk_impl::bsatn_key::bsatn_key,
 };
 
 pub struct TableRegistration<C: StdbConn> {
@@ -42,6 +43,22 @@ impl<C: StdbConn> TableRegistration<C> {
         Self {
             install: Box::new(move |app| {
                 add_stdb_table(app, forward, snapshot, key, messages_mask);
+            }),
+            mark: std::marker::PhantomData,
+        }
+    }
+
+    pub fn non_pk<R>(
+        forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+        snapshot: fn(&C) -> Vec<R>,
+        messages_mask: KeylessMessagesMask,
+    ) -> Self
+    where
+        R: StdbRow + crate::sdk_impl::Serialize,
+    {
+        Self {
+            install: Box::new(move |app| {
+                add_stdb_table(app, forward, snapshot, bsatn_key, messages_mask.into());
             }),
             mark: std::marker::PhantomData,
         }

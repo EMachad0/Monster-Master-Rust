@@ -34,7 +34,9 @@ pub use crate::lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected};
 pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
-pub use crate::row::row_messages::{RowDeleted, RowInserted, RowMessagesMask, RowUpdated};
+pub use crate::row::row_messages::{
+    KeylessMessagesMask, RowDeleted, RowInserted, RowMessagesMask, RowUpdated,
+};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_connection_driver::SdkConnectionDriver, sdk_subscription_driver::SdkSubscriptionDriver,

@@ -18,8 +18,8 @@ impl<R: StdbRow> RowForwarder<R> {
         }
     }
 
-    pub fn with_filter(mut self, filter: RowMessagesMask) -> Self {
-        self.filter = filter;
+    pub fn with_filter(mut self, filter: impl Into<RowMessagesMask>) -> Self {
+        self.filter = filter.into();
         self
     }
 
@@ -37,6 +37,20 @@ impl<R: StdbRow> RowForwarder<R> {
         }
         if update {
             self = self.updates(table);
+        }
+        if delete {
+            self = self.deletes(table);
+        }
+        self
+    }
+
+    pub fn forward_keyless<T>(mut self, table: &T) -> Self
+    where
+        T: SdkTable<Row = R>,
+    {
+        let RowMessagesMask { insert, delete, .. } = self.filter;
+        if insert {
+            self = self.inserts(table);
         }
         if delete {
             self = self.deletes(table);
