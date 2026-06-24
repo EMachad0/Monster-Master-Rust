@@ -18,18 +18,6 @@ pub struct TableRegistration<C: StdbConn> {
 }
 
 impl<C: StdbConn> TableRegistration<C> {
-    pub fn new<R>(_messages_callback: fn(&StdbConnection<C>, RowForwarder<R>)) -> Self
-    where
-        R: StdbRow,
-    {
-        Self {
-            install: Box::new(move |_app| {
-                // add_stdb_table(app, messages_callback);
-            }),
-            mark: std::marker::PhantomData,
-        }
-    }
-
     pub fn pk<R, K>(
         forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
         snapshot: fn(&C) -> Vec<R>,
@@ -129,24 +117,46 @@ macro_rules! stdb_table {
         )
     };
 
-    ($accessor:ident => $row:ty, [$($cb:ident),+$(,)?]) => {
-        $crate::TableRegistration::new(|conn, mut fwd| {
-            use $crate::__sdk::DbContext as _;
-            $(
-                fwd = stdb_table!(@forward fwd, conn, $accessor, $cb);
-            )+
-        })
+    ($accessor:ident => $row:ty, key = $key:ident, [$($cb:ident),+ $(,)?]) => {
+        $crate::TableRegistration::pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            |row| row.$key.clone(),
+            $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },
+        )
     };
 
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, insert) => {
-        $fwd.inserts(&$conn.db().$accessor())
+    ($accessor:ident => $row:ty) => {
+        $crate::TableRegistration::non_pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward_keyless(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            $crate::KeylessMessagesMask::INSERT_DELETE,
+        )
     };
 
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, update) => {
-        $fwd.updates(&$conn.db().$accessor())
-    };
-
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, delete) => {
-        $fwd.deletes(&$conn.db().$accessor())
+    ($accessor:ident => $row:ty, [$($cb:ident),+ $(,)?]) => {
+        $crate::TableRegistration::non_pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward_keyless(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            $crate::KeylessMessagesMask { $($cb: true,)+ ..$crate::KeylessMessagesMask::NONE },
+        )
     };
 }

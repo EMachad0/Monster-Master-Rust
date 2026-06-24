@@ -58,7 +58,7 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn inserts<T>(self, table: &T) -> Self
+    fn inserts<T>(self, table: &T) -> Self
     where
         T: SdkTable<Row = R>,
     {
@@ -67,7 +67,7 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn deletes<T>(self, table: &T) -> Self
+    fn deletes<T>(self, table: &T) -> Self
     where
         T: SdkTable<Row = R>,
     {
@@ -76,7 +76,7 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn updates<T>(self, table: &T) -> Self
+    fn updates<T>(self, table: &T) -> Self
     where
         T: SdkTableWithPrimaryKey<Row = R>,
     {
