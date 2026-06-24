@@ -6,11 +6,11 @@ A multiplayer game: a **Bevy** client (web via WebAssembly + native desktop) on 
 ## Tech Stack
 
 - **Client:** Rust + **Bevy 0.18**, running on the web (wasm via **trunk**) and native desktop.
-- **Backend:** self-hosted **SpacetimeDB 2.4** (Docker). The Module is written in Rust.
+- **Backend:** self-hosted **SpacetimeDB 2.6** (Docker). The Module is written in Rust.
 - **Bridge:** `stdb_bevy` — a hand-written, module-agnostic Bevy↔SpacetimeDB integration over
-  `spacetimedb-sdk` 2.4. We deliberately do **not** use the `bevy_spacetimedb` crate
+  `spacetimedb-sdk` 2.6. We deliberately do **not** use the `bevy_spacetimedb` crate
   (see `../docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`).
-- **Toolchain:** `rust-toolchain.toml` pins Rust (SpacetimeDB 2.4 needs ≥ 1.93); `mise` installs
+- **Toolchain:** `rust-toolchain.toml` pins Rust (SpacetimeDB 2.6 needs ≥ 1.93); `mise` installs
   `just`, `trunk`, and `spacetimedb-cli`. Dependency versions are centralized in the root
   `Cargo.toml` `[workspace.dependencies]`.
 
