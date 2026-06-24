@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::{
-    RowDeleted, RowForwarder, RowInserted, RowUpdated, StdbConn, StdbConnected, StdbConnection,
-    StdbPreviousConnection, StdbRow, StdbSystemSet,
+    RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated, StdbConn, StdbConnected,
+    StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
     row::{
         row_channel::{RowChannel, clear_row_sink, drain_row_sink},
         row_messages_resync::{
@@ -33,6 +33,7 @@ impl<C: StdbConn> TableRegistration<C> {
         forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
         snapshot: fn(&C) -> Vec<R>,
         key: fn(&R) -> K,
+        messages_mask: RowMessagesMask,
     ) -> Self
     where
         R: StdbRow,
@@ -40,7 +41,7 @@ impl<C: StdbConn> TableRegistration<C> {
     {
         Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, forward, snapshot, key);
+                add_stdb_table(app, forward, snapshot, key, messages_mask);
             }),
             mark: std::marker::PhantomData,
         }
@@ -56,6 +57,7 @@ pub(crate) fn add_stdb_table<C, R, K>(
     forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
     snapshot: fn(&C) -> Vec<R>,
     key: fn(&R) -> K,
+    messages_mask: RowMessagesMask,
 ) where
     C: StdbConn,
     R: StdbRow,
@@ -71,14 +73,14 @@ pub(crate) fn add_stdb_table<C, R, K>(
 
     app.add_observer(
         move |_: On<StdbConnected>, connection: Res<StdbConnection<C>>| {
-            let fwd = RowForwarder::new(sink.clone());
+            let fwd = RowForwarder::new(sink.clone()).with_filter(messages_mask);
             (forward)(&connection, fwd);
         },
     );
 
     app.add_systems(
         bevy::app::Update,
-        resync_row_messages_system(snapshot, key)
+        resync_row_messages_system(snapshot, key, messages_mask)
             .in_set(StdbSystemSet::Resync)
             .before(drop_stdbpreviousconnection_after_resync::<C>),
     );
@@ -106,6 +108,7 @@ macro_rules! stdb_table {
                 conn.db().$accessor().iter().collect()
             },
             |row| row.$key.clone(),
+            $crate::RowMessagesMask::ALL,
         )
     };
 

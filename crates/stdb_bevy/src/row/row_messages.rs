@@ -37,3 +37,30 @@ impl<T> RowDeleted<T> {
         &self.0
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct RowMessagesMask {
+    pub insert: bool,
+    pub update: bool,
+    pub delete: bool,
+}
+
+impl RowMessagesMask {
+    pub const ALL: Self = Self {
+        insert: true,
+        update: true,
+        delete: true,
+    };
+
+    pub const NONE: Self = Self {
+        insert: false,
+        update: false,
+        delete: false,
+    };
+}
+
+impl Default for RowMessagesMask {
+    fn default() -> Self {
+        Self::ALL
+    }
+}

@@ -1,21 +1,47 @@
 use spacetimedb_sdk::{Table as SdkTable, TableWithPrimaryKey as SdkTableWithPrimaryKey};
 
-use crate::row::row_channel::{RowSink, StdbRow};
+use crate::{
+    RowMessagesMask,
+    row::row_channel::{RowSink, StdbRow},
+};
 
 pub struct RowForwarder<R: StdbRow> {
     sink: RowSink<R>,
+    filter: RowMessagesMask,
 }
 
 impl<R: StdbRow> RowForwarder<R> {
     pub fn new(sink: RowSink<R>) -> Self {
-        Self { sink }
+        Self {
+            sink,
+            filter: RowMessagesMask::default(),
+        }
     }
 
-    pub fn forward<T>(self, table: &T) -> Self
+    pub fn with_filter(mut self, filter: RowMessagesMask) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    pub fn forward<T>(mut self, table: &T) -> Self
     where
         T: SdkTableWithPrimaryKey<Row = R>,
     {
-        self.inserts(table).deletes(table).updates(table)
+        let RowMessagesMask {
+            insert,
+            update,
+            delete,
+        } = self.filter;
+        if insert {
+            self = self.inserts(table);
+        }
+        if update {
+            self = self.updates(table);
+        }
+        if delete {
+            self = self.deletes(table);
+        }
+        self
     }
 
     pub fn inserts<T>(self, table: &T) -> Self

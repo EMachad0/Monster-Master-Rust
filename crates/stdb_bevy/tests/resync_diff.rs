@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
-    RowDeleted, RowInserted, RowUpdated, StdbConnection, StdbPlugin, StdbPreviousConnection,
-    StdbStatus, StdbSystemSet, TableRegistration,
+    RowDeleted, RowInserted, RowMessagesMask, RowUpdated, StdbConnection, StdbPlugin,
+    StdbPreviousConnection, StdbStatus, StdbSystemSet, TableRegistration,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -77,6 +77,13 @@ fn capture_updates(mut reader: MessageReader<RowUpdated<Player>>, mut out: ResMu
 /// `old`, the live connection holding `new`, status `Connected`, no subscriptions. One `update` then
 /// runs the fence.
 fn fence_app(old: Vec<Player>, new: Vec<Player>) -> App {
+    // The default selection surfaces every event — the behavior the diff has always had.
+    fence_app_emitting(old, new, RowMessagesMask::ALL)
+}
+
+/// Like `fence_app`, but registers the `player` PK table with an explicit `RowMessagesMask`, so a
+/// test can pin which diff branches that selection gates.
+fn fence_app_emitting(old: Vec<Player>, new: Vec<Player>, emit: RowMessagesMask) -> App {
     let mut app = App::new();
     app.add_plugins(
         StdbPlugin::connection(CannedDriver::new(conn(vec![]))).add_tables([
@@ -85,6 +92,7 @@ fn fence_app(old: Vec<Player>, new: Vec<Player>) -> App {
                 |conn, fwd| fwd.forward(&conn.db().player()),
                 |c| c.db().player().iter().collect(),
                 |p| p.id,
+                emit,
             ),
         ]),
     );
@@ -257,5 +265,83 @@ fn a_widened_subscription_inserts_everything() {
         inserts_sorted(&app),
         vec![player(1, "a"), player(2, "b")],
         "every row in the fresh snapshot but absent from the baseline is an insert",
+    );
+}
+
+#[test]
+fn update_selection_off_drops_a_same_key_change() {
+    // A same-key body change during the outage, alongside a ghost.
+    let mut app = fence_app_emitting(
+        vec![player(1, "old"), player(2, "ghost")],
+        vec![player(1, "new")],
+        RowMessagesMask {
+            insert: true,
+            update: false,
+            delete: true,
+        },
+    );
+
+    app.update();
+
+    assert!(
+        updates_sorted(&app).is_empty(),
+        "with update deselected, a same-key body change surfaces no RowUpdated",
+    );
+    assert_eq!(
+        deletes_sorted(&app),
+        vec![player(2, "ghost")],
+        "the ghost still deletes — the selection gates only updates, and the diff did run",
+    );
+}
+
+#[test]
+fn insert_selection_off_drops_a_new_row() {
+    // A same-key body change during the outage, alongside a genuine new row.
+    let mut app = fence_app_emitting(
+        vec![player(1, "old")],
+        vec![player(1, "new"), player(3, "fresh")],
+        RowMessagesMask {
+            insert: false,
+            update: true,
+            delete: true,
+        },
+    );
+
+    app.update();
+
+    assert!(
+        inserts_sorted(&app).is_empty(),
+        "with insert deselected, a row new to the snapshot surfaces no RowInserted",
+    );
+    assert_eq!(
+        updates_sorted(&app),
+        vec![(player(1, "old"), player(1, "new"))],
+        "the same-key change still updates — the selection gates only inserts, and the diff did run",
+    );
+}
+
+#[test]
+fn delete_selection_off_keeps_a_ghost() {
+    // A ghost (deleted during the outage), alongside a genuine new row.
+    let mut app = fence_app_emitting(
+        vec![player(1, "a"), player(2, "ghost")],
+        vec![player(1, "a"), player(3, "fresh")],
+        RowMessagesMask {
+            insert: true,
+            update: true,
+            delete: false,
+        },
+    );
+
+    app.update();
+
+    assert!(
+        deletes_sorted(&app).is_empty(),
+        "with delete deselected, a ghost gone from the snapshot surfaces no RowDeleted",
+    );
+    assert_eq!(
+        inserts_sorted(&app),
+        vec![player(3, "fresh")],
+        "the new row still inserts — the selection gates only deletes, and the diff did run",
     );
 }

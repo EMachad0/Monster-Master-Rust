@@ -14,7 +14,8 @@ use bevy::prelude::*;
 use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
 use stdb_bevy::{
-    RowInserted, StdbConnect, StdbDisconnect, StdbPlugin, StdbSystemSet, TableRegistration,
+    RowInserted, RowMessagesMask, StdbConnect, StdbDisconnect, StdbPlugin, StdbSystemSet,
+    TableRegistration,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -71,6 +72,7 @@ fn app(players: Vec<Player>) -> App {
                 |conn, fwd| fwd.forward(&conn.db().player()),
                 |c| c.db().player().iter().collect(),
                 |p| p.id,
+                RowMessagesMask::ALL,
             ),
         ]),
     );

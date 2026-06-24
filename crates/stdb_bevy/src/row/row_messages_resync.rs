@@ -1,5 +1,6 @@
 use crate::{
-    RowDeleted, RowInserted, RowUpdated, StdbConn, StdbConnection, StdbPreviousConnection, StdbRow,
+    RowDeleted, RowInserted, RowMessagesMask, RowUpdated, StdbConn, StdbConnection,
+    StdbPreviousConnection, StdbRow,
 };
 use bevy::prelude::*;
 
@@ -7,6 +8,7 @@ use bevy::prelude::*;
 pub(crate) fn resync_row_messages_system<C, R, K>(
     snapshot: fn(&C) -> Vec<R>,
     get_key: fn(&R) -> K,
+    row_messages_mask: RowMessagesMask,
 ) -> impl FnMut(
     Res<StdbPreviousConnection<C>>,
     Res<StdbConnection<C>>,
@@ -19,6 +21,11 @@ where
     R: StdbRow,
     K: Eq + Ord,
 {
+    let RowMessagesMask {
+        insert,
+        update,
+        delete,
+    } = row_messages_mask;
     move |previous_conn, conn, mut insert_writer, mut update_writer, mut delete_writer| {
         let mut old_cache = (snapshot)(&previous_conn.0)
             .into_iter()
@@ -38,27 +45,35 @@ where
                 (Some((k0, _)), Some((k1, _))) => match k0.cmp(k1) {
                     std::cmp::Ordering::Less => {
                         let (_, old) = old_cache.next().unwrap();
-                        delete_writer.write(RowDeleted(old));
+                        if delete {
+                            delete_writer.write(RowDeleted(old));
+                        }
                     }
                     std::cmp::Ordering::Equal => {
                         let (_, old) = old_cache.next().unwrap();
                         let (_, new) = new_cache.next().unwrap();
-                        if old != new {
+                        if old != new && update {
                             update_writer.write(RowUpdated { old, new });
                         }
                     }
                     std::cmp::Ordering::Greater => {
                         let (_, new) = new_cache.next().unwrap();
-                        insert_writer.write(RowInserted(new));
+                        if insert {
+                            insert_writer.write(RowInserted(new));
+                        }
                     }
                 },
                 (Some(_), None) => {
                     let (_, old) = old_cache.next().unwrap();
-                    delete_writer.write(RowDeleted(old));
+                    if delete {
+                        delete_writer.write(RowDeleted(old));
+                    }
                 }
                 (None, Some(_)) => {
                     let (_, new) = new_cache.next().unwrap();
-                    insert_writer.write(RowInserted(new));
+                    if insert {
+                        insert_writer.write(RowInserted(new));
+                    }
                 }
                 (None, None) => break,
             }
