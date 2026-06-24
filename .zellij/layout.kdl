@@ -19,7 +19,7 @@ layout {
                 args "-lic" "bacon clippy-all"
             }
             pane focus=true command="$SHELL" {
-                args "-lic" "pi"
+                args "-lic" "claude"
             }
         }
     }
