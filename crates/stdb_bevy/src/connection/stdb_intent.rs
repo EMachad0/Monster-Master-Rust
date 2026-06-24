@@ -1,4 +1,4 @@
-use bevy::ecs::{observer::On, resource::Resource, system::ResMut};
+use bevy::prelude::*;
 
 use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 
@@ -6,6 +6,11 @@ use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub(crate) enum StdbIntent {
     Connected,
     Disconnected,
+}
+
+/// Distinguishes an unintended disconnect (which arms a reconnect) from a deliberate one.
+pub(crate) fn intends_to_be_connected(intent: Res<StdbIntent>) -> bool {
+    *intent == StdbIntent::Connected
 }
 
 pub(crate) fn update_intent_on_stdbconnect(_: On<StdbConnect>, mut intent: ResMut<StdbIntent>) {
