@@ -92,6 +92,16 @@ with `spacetimedb-cli logout` (or delete `spacetimedb_token` from `~/.config/spa
 then publish again; it performs a fresh server-issued login. The persistent data volume keeps the
 keys stable across normal `up`/`down`, so this only bites after a wipe.
 
+If `publish` instead fails with `403 Forbidden: <identity> is not authorized to perform action ...:
+update database`, the Module's database already exists but is owned by an identity from a rotated
+keyspace the CLI can no longer authenticate as. It is the same key regeneration as above, now
+blocking the database *update* rather than failing the token check (a fresh `logout` + login mints a
+new identity, which is not the existing owner). For a local dev database (throwaway data) the fix is
+a clean recreate so the current identity owns it: `docker compose down -v`, then `docker compose up`,
+then `spacetimedb-cli logout` (the recreate rotates the keys again, leaving the cached token stale),
+then `just stdb::publish`, which creates and owns the database fresh. Bumping the server image tag
+recreates the data dir the same way, so expect this on the first publish after a version bump.
+
 ### 7. Web (wasm) specifics
 
 - `getrandom` uses its JS backend on wasm — set once in `.cargo/config.toml`
