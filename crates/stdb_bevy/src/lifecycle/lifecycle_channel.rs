@@ -1,10 +1,11 @@
 use bevy::ecs::{
     resource::Resource,
     system::{Commands, Res},
+    world::World,
 };
 
 use crate::{
-    StdbBevyError, StdbBevyErrorEvent,
+    StdbBevyError, StdbBevyErrorEvent, StdbPreviousConnection,
     connection::{
         stdb_connection::{StdbConn, StdbConnection},
         stdb_status::StdbStatus,
@@ -89,12 +90,18 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
                 commands.trigger(StdbConnected);
             }
             LifecycleEvent::Disconnected => {
-                commands.remove_resource::<StdbConnection<C>>();
+                commands.queue(|world: &mut World| {
+                    let conn = world.remove_resource::<StdbConnection<C>>();
+                    if let Some(StdbConnection(conn)) = conn
+                        && !world.contains_resource::<StdbPreviousConnection<C>>()
+                    {
+                        world.insert_resource(StdbPreviousConnection(conn));
+                    }
+                });
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbDisconnected);
             }
             LifecycleEvent::ConnectionError(e) => {
-                commands.remove_resource::<StdbConnection<C>>();
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbBevyErrorEvent::new(e));
             }
@@ -109,15 +116,24 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 mod tests {
     use bevy::prelude::*;
 
-    use crate::test_support::{FakeConn, FakeDriver, test_app};
+    use crate::test_support::{CannedDriver, FakeConn, FakeDriver, test_app};
+    use crate::{StdbPreviousConnection, Subscription};
 
     use super::*;
+
+    /// A connection value carrying an identity tag, so a test can tell two connections apart —
+    /// `FakeConn` is field-less and indistinguishable. Auto-satisfies `StdbConn` (Send+Sync+'static).
+    #[derive(Clone)]
+    struct TaggedConn(u32);
 
     #[derive(Resource, Default)]
     struct ObserverFired(bool);
 
     #[derive(Resource, Default)]
     struct DisconnectFired(bool);
+
+    #[derive(Resource, Default)]
+    struct StatusSeenOnDisconnect(Option<StdbStatus>);
 
     #[test]
     fn connected_signal_triggers_observer_status_and_resource() {
@@ -157,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_signal_triggers_observer_status_and_removes_resource() {
+    fn disconnect_moves_the_connection_into_previous_connection() {
         let mut app = test_app(FakeDriver::default());
 
         app.init_resource::<DisconnectFired>();
@@ -192,7 +208,134 @@ mod tests {
             app.world()
                 .get_resource::<StdbConnection<FakeConn>>()
                 .is_none(),
-            "StdbConnection<C> should be removed on disconnect",
+            "the live StdbConnection<C> must be removed on disconnect",
+        );
+        assert!(
+            app.world()
+                .get_resource::<StdbPreviousConnection<FakeConn>>()
+                .is_some(),
+            "on disconnect the dropped connection must be retained as the resync baseline",
+        );
+    }
+
+    #[test]
+    fn first_connect_leaves_no_baseline() {
+        let mut app = test_app(FakeDriver::default());
+
+        // A first connect, with no prior disconnect.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_some(),
+            "a first connect installs the live connection",
+        );
+        assert!(
+            app.world()
+                .get_resource::<StdbPreviousConnection<FakeConn>>()
+                .is_none(),
+            "with no prior disconnect there is nothing to reconcile, so no baseline exists",
+        );
+    }
+
+    #[test]
+    fn reconnect_does_not_overwrite_the_baseline() {
+        let mut app = test_app(CannedDriver::new(TaggedConn(0)));
+
+        // An in-flight subscription holds the resync window open, so the fence cannot consume the
+        // baseline on reconnect — isolating the Connected arm's "never touch the baseline" behavior.
+        app.world_mut().spawn(Subscription::table("x"));
+
+        let sink = app
+            .world()
+            .resource::<LifecycleChannel<TaggedConn>>()
+            .sink();
+
+        // Connect, then drop: conn 1 becomes the baseline.
+        sink.connected(TaggedConn(1)).unwrap();
+        app.update();
+        sink.disconnected().unwrap();
+        app.update();
+
+        // Reconnect with a different connection.
+        sink.connected(TaggedConn(2)).unwrap();
+        app.update();
+
+        let baseline = app
+            .world()
+            .get_resource::<StdbPreviousConnection<TaggedConn>>()
+            .expect("the baseline must survive a reconnect");
+        assert_eq!(
+            baseline.0.0, 1,
+            "Connected must never touch the baseline — it still holds the pre-outage connection",
+        );
+    }
+
+    #[test]
+    fn flapping_preserves_the_original_baseline() {
+        let mut app = test_app(CannedDriver::new(TaggedConn(0)));
+
+        // An in-flight subscription holds the resync window open across the flap, so the fence
+        // cannot consume the baseline — isolating the flapping guard's "keep the original" behavior.
+        app.world_mut().spawn(Subscription::table("x"));
+
+        let sink = app
+            .world()
+            .resource::<LifecycleChannel<TaggedConn>>()
+            .sink();
+
+        // Connect(1) -> drop: conn 1 is the baseline.
+        sink.connected(TaggedConn(1)).unwrap();
+        app.update();
+        sink.disconnected().unwrap();
+        app.update();
+
+        // Reconnect(2) -> drop again before any resync consumed the baseline.
+        sink.connected(TaggedConn(2)).unwrap();
+        app.update();
+        sink.disconnected().unwrap();
+        app.update();
+
+        let baseline = app
+            .world()
+            .get_resource::<StdbPreviousConnection<TaggedConn>>()
+            .expect("a flapping reconnect must keep a baseline");
+        assert_eq!(
+            baseline.0.0, 1,
+            "the second disconnect must not clobber the baseline — the original pre-outage \
+             connection is preserved (stash only when PreviousConnection is empty)",
+        );
+    }
+
+    #[test]
+    fn status_is_disconnected_when_the_disconnected_observer_fires() {
+        let mut app = test_app(FakeDriver::default());
+
+        app.init_resource::<StatusSeenOnDisconnect>();
+        app.add_observer(
+            |_on: On<StdbDisconnected>,
+             status: Res<StdbStatus>,
+             mut seen: ResMut<StatusSeenOnDisconnect>| { seen.0 = Some(*status) },
+        );
+
+        // Connect first, so there is a live connection to drop.
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+        assert_eq!(*app.world().resource::<StdbStatus>(), StdbStatus::Connected);
+
+        // Drop it.
+        sink.disconnected().unwrap();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<StatusSeenOnDisconnect>().0,
+            Some(StdbStatus::Disconnected),
+            "an StdbDisconnected observer must see StdbStatus already flipped to Disconnected, \
+             not the stale Connected value — status must be set before the trigger",
         );
     }
 }

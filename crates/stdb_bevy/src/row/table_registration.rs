@@ -1,9 +1,15 @@
-use bevy::ecs::{observer::On, schedule::IntoScheduleConfigs as _, system::Res};
+use bevy::prelude::*;
 
 use crate::{
-    RowDeleted, RowForwarder, RowInserted, RowUpdated, StdbConn, StdbConnected, StdbConnection,
-    StdbRow, StdbSystemSet,
-    row::row_channel::{RowChannel, drain_row_sink},
+    KeylessMessagesMask, RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated,
+    StdbConn, StdbConnected, StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
+    row::{
+        row_channel::{RowChannel, clear_row_sink, drain_row_sink},
+        row_messages_resync::{
+            drop_stdbpreviousconnection_after_resync, resync_row_messages_system,
+        },
+    },
+    sdk_impl::bsatn_key::bsatn_key,
 };
 
 pub struct TableRegistration<C: StdbConn> {
@@ -12,14 +18,35 @@ pub struct TableRegistration<C: StdbConn> {
 }
 
 impl<C: StdbConn> TableRegistration<C> {
-    pub fn new<R>(messages_callback: fn(&StdbConnection<C>, RowForwarder<R>)) -> Self
+    pub fn pk<R, K>(
+        forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+        snapshot: fn(&C) -> Vec<R>,
+        key: fn(&R) -> K,
+        messages_mask: RowMessagesMask,
+    ) -> Self
     where
-        C: StdbConn,
         R: StdbRow,
+        K: 'static + Eq + Ord,
     {
         Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, messages_callback);
+                add_stdb_table(app, forward, snapshot, key, messages_mask);
+            }),
+            mark: std::marker::PhantomData,
+        }
+    }
+
+    pub fn non_pk<R>(
+        forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+        snapshot: fn(&C) -> Vec<R>,
+        messages_mask: KeylessMessagesMask,
+    ) -> Self
+    where
+        R: StdbRow + crate::sdk_impl::Serialize,
+    {
+        Self {
+            install: Box::new(move |app| {
+                add_stdb_table(app, forward, snapshot, bsatn_key, messages_mask.into());
             }),
             mark: std::marker::PhantomData,
         }
@@ -30,12 +57,16 @@ impl<C: StdbConn> TableRegistration<C> {
     }
 }
 
-pub(crate) fn add_stdb_table<C, R>(
+pub(crate) fn add_stdb_table<C, R, K>(
     app: &mut bevy::app::App,
-    messages_callback: fn(&StdbConnection<C>, RowForwarder<R>),
+    forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
+    snapshot: fn(&C) -> Vec<R>,
+    key: fn(&R) -> K,
+    messages_mask: RowMessagesMask,
 ) where
     C: StdbConn,
     R: StdbRow,
+    K: 'static + Eq + Ord,
 {
     let row_channel = RowChannel::new();
     let sink = row_channel.sink();
@@ -47,43 +78,85 @@ pub(crate) fn add_stdb_table<C, R>(
 
     app.add_observer(
         move |_: On<StdbConnected>, connection: Res<StdbConnection<C>>| {
-            let fwd = RowForwarder::new(sink.clone());
-            (messages_callback)(&connection, fwd);
+            let fwd = RowForwarder::new(sink.clone()).with_filter(messages_mask);
+            (forward)(&connection, fwd);
         },
     );
 
     app.add_systems(
         bevy::app::Update,
-        drain_row_sink::<R>.in_set(StdbSystemSet::RowMessagesPush),
+        resync_row_messages_system(snapshot, key, messages_mask)
+            .in_set(StdbSystemSet::Resync)
+            .before(drop_stdbpreviousconnection_after_resync::<C>),
+    );
+
+    app.add_systems(
+        bevy::app::Update,
+        (
+            drain_row_sink::<R>.run_if(not(resource_exists::<StdbPreviousConnection<C>>)),
+            clear_row_sink::<R>.run_if(resource_exists::<StdbPreviousConnection<C>>),
+        )
+            .in_set(StdbSystemSet::RowMessagesPush),
     );
 }
 
 #[macro_export]
 macro_rules! stdb_table {
+    ($accessor:ident => $row:ty, key = $key:ident) => {
+        $crate::TableRegistration::pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            |row| row.$key.clone(),
+            $crate::RowMessagesMask::ALL,
+        )
+    };
+
+    ($accessor:ident => $row:ty, key = $key:ident, [$($cb:ident),+ $(,)?]) => {
+        $crate::TableRegistration::pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            |row| row.$key.clone(),
+            $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },
+        )
+    };
+
     ($accessor:ident => $row:ty) => {
-        $crate::TableRegistration::new(|conn, fwd: $crate::RowForwarder<$row>| {
-            use $crate::__sdk::DbContext as _;
-            fwd.forward(&conn.db().$accessor());
-        })
+        $crate::TableRegistration::non_pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward_keyless(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            $crate::KeylessMessagesMask::INSERT_DELETE,
+        )
     };
 
-    ($accessor:ident => $row:ty, [$($cb:ident),+$(,)?]) => {
-        $crate::TableRegistration::new(|conn, mut fwd| {
-            use $crate::__sdk::DbContext as _;
-            $(
-                fwd = stdb_table!(@forward fwd, conn, $accessor, $cb);
-            )+
-        })
+    ($accessor:ident => $row:ty, [$($cb:ident),+ $(,)?]) => {
+        $crate::TableRegistration::non_pk(
+            |conn, fwd| {
+                use $crate::__sdk::DbContext as _;
+                fwd.forward_keyless(&conn.db().$accessor())
+            },
+            |conn| {
+                use $crate::__sdk::{DbContext as _, Table as _};
+                conn.db().$accessor().iter().collect()
+            },
+            $crate::KeylessMessagesMask { $($cb: true,)+ ..$crate::KeylessMessagesMask::NONE },
+        )
     };
-
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, insert) => {
-        $fwd.inserts(&$conn.db().$accessor())
-    };
-
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, update) => {
-        $fwd.updates(&$conn.db().$accessor())
-    };
-
-    (@forward $fwd:ident, $conn:ident, $accessor:ident, delete) => {
-        $fwd.deletes(&$conn.db().$accessor())
-    };}
+}

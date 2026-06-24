@@ -16,7 +16,8 @@ use crate::StdbSubscriptionDriver;
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
 use crate::{StdbBevyError, SubscriptionId};
 
-/// Stand-in for a real `DbConnection`. The engine only requires `Send + Sync + 'static`.
+/// A minimal connection value for tests that never read the connection itself — the bridge's
+/// `StdbConn` bound asks only for `Send + Sync + 'static`.
 #[derive(Clone, Default)]
 pub struct FakeConn;
 
@@ -143,28 +144,48 @@ impl StdbConnectionDriver for DeferredDriver {
     fn tick(&self, _conn: &StdbConnection<FakeConn>) {}
 }
 
-/// A fake SDK table handle that delivers its canned rows the instant a callback is registered, so a
-/// `RowForwarder` (handle callback → message) is exercisable without a real connection. The SDK
-/// `Table` trait leaves `Row`/`EventContext` unconstrained, so a trivial `EventContext = ()` and
-/// unit callback ids suffice.
+/// A table that presents rows two independent ways, so the bridge's row paths run without a live
+/// connection:
+///
+/// - **callbacks** (`inserts`/`updates`/`deletes`): replayed into a callback the moment it is
+///   registered, driving the `RowForwarder` (callback → message);
+/// - **cache** (`rows`): yielded by `iter()`, the row set the resync diff reads from a
+///   `StdbPreviousConnection` / `StdbConnection`.
+///
+/// Its event context and callback ids are unit types — this table carries no event payload.
 #[derive(Default)]
 pub struct FakeTable<R> {
+    /// The rows the table "contains" — yielded by `iter()`, the path the resync diff reads.
+    pub rows: Vec<R>,
     pub inserts: Vec<R>,
     pub updates: Vec<(R, R)>,
     pub deletes: Vec<R>,
 }
 
-impl<R: 'static> SdkTable for FakeTable<R> {
+impl<R> FakeTable<R> {
+    /// A table whose cache (`iter()`) holds `rows`, with the callback fields left empty — the shape
+    /// the resync diff reads. Pairs with `FakeDbContext` to present a connection's per-table rows.
+    pub fn with_rows(rows: Vec<R>) -> Self {
+        Self {
+            rows,
+            inserts: Vec::new(),
+            updates: Vec::new(),
+            deletes: Vec::new(),
+        }
+    }
+}
+
+impl<R: 'static + Clone> SdkTable for FakeTable<R> {
     type Row = R;
     type EventContext = ();
     type InsertCallbackId = ();
     type DeleteCallbackId = ();
 
     fn count(&self) -> u64 {
-        self.inserts.len() as u64
+        self.rows.len() as u64
     }
     fn iter(&self) -> impl Iterator<Item = R> + '_ {
-        std::iter::empty()
+        self.rows.iter().cloned()
     }
     fn on_insert(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {
         for r in &self.inserts {
@@ -180,7 +201,7 @@ impl<R: 'static> SdkTable for FakeTable<R> {
     fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
 }
 
-impl<R: 'static> SdkTableWithPrimaryKey for FakeTable<R> {
+impl<R: 'static + Clone> SdkTableWithPrimaryKey for FakeTable<R> {
     type UpdateCallbackId = ();
     fn on_update(
         &self,
@@ -223,10 +244,10 @@ impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
     fn tick(&self, _conn: &StdbConnection<C>) {}
 }
 
-/// A fake connection that satisfies the SDK's [`DbContext`] so the `stdb_table!` macro's
-/// `conn.db().<table>()` body runs in a unit test. Generic over the DbView `V`, so each test
-/// supplies its own table accessors (mirroring a generated `RemoteTables`). Only `db()` is
-/// meaningful; the rest are stubs the macro never reaches.
+/// A connection whose `db()` exposes a caller-supplied DbView `V`, so the `stdb_table!` macro's
+/// `conn.db().<table>()` body — and the resync diff's per-table reads — run in a unit test. Each
+/// test supplies its own table accessors through `V`, the way a generated `RemoteTables` does. Only
+/// `db()` carries meaning here; the other accessors are unused stubs.
 #[derive(Clone)]
 pub struct FakeDbContext<V> {
     db: V,
@@ -279,4 +300,76 @@ pub fn test_app<Cd: StdbConnectionDriver + Clone>(driver: Cd) -> bevy::app::App 
     app.add_plugins(crate::StdbPlugin::connection(driver));
     app.insert_resource(bevy::time::Time::<()>::default());
     app
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, PartialEq, Debug)]
+    struct Player {
+        id: u32,
+    }
+    #[derive(Clone, PartialEq, Debug)]
+    struct Monster {
+        id: u32,
+    }
+
+    /// Stand-in DbView: per-table accessors returning each table's cached rows, mirroring a
+    /// generated `RemoteTables`. The resync diff reaches rows via `conn.db().<table>().iter()`.
+    #[derive(Clone)]
+    struct GameDb {
+        players: Vec<Player>,
+        monsters: Vec<Monster>,
+    }
+
+    impl GameDb {
+        fn player(&self) -> FakeTable<Player> {
+            FakeTable::with_rows(self.players.clone())
+        }
+        fn monster(&self) -> FakeTable<Monster> {
+            FakeTable::with_rows(self.monsters.clone())
+        }
+    }
+
+    #[test]
+    fn fake_table_iter_yields_its_rows() {
+        let table = FakeTable::with_rows(vec![Player { id: 1 }, Player { id: 2 }]);
+
+        assert_eq!(
+            table.iter().collect::<Vec<_>>(),
+            vec![Player { id: 1 }, Player { id: 2 }],
+            "iter() must present the cached rows — the path the resync diff reads — not only callbacks",
+        );
+    }
+
+    #[test]
+    fn fake_table_iter_is_empty_with_no_rows() {
+        let table: FakeTable<Player> = FakeTable::with_rows(vec![]);
+
+        assert_eq!(
+            table.iter().count(),
+            0,
+            "an empty cache yields no rows, so the diff reads the table as empty (ghost-everything)",
+        );
+    }
+
+    #[test]
+    fn fake_connection_presents_each_tables_rows_via_db() {
+        let conn = FakeDbContext::new(GameDb {
+            players: vec![Player { id: 1 }],
+            monsters: vec![Monster { id: 7 }, Monster { id: 8 }],
+        });
+
+        assert_eq!(
+            conn.db().player().iter().collect::<Vec<_>>(),
+            vec![Player { id: 1 }],
+            "db().<table>().iter() presents that table's cache — the diff's read path",
+        );
+        assert_eq!(
+            conn.db().monster().iter().collect::<Vec<_>>(),
+            vec![Monster { id: 7 }, Monster { id: 8 }],
+            "each table accessor presents its own rows independently",
+        );
+    }
 }

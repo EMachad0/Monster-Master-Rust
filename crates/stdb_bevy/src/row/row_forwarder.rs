@@ -1,24 +1,64 @@
 use spacetimedb_sdk::{Table as SdkTable, TableWithPrimaryKey as SdkTableWithPrimaryKey};
 
-use crate::row::row_channel::{RowSink, StdbRow};
+use crate::{
+    RowMessagesMask,
+    row::row_channel::{RowSink, StdbRow},
+};
 
 pub struct RowForwarder<R: StdbRow> {
     sink: RowSink<R>,
+    filter: RowMessagesMask,
 }
 
 impl<R: StdbRow> RowForwarder<R> {
     pub fn new(sink: RowSink<R>) -> Self {
-        Self { sink }
+        Self {
+            sink,
+            filter: RowMessagesMask::default(),
+        }
     }
 
-    pub fn forward<T>(self, table: &T) -> Self
+    pub fn with_filter(mut self, filter: impl Into<RowMessagesMask>) -> Self {
+        self.filter = filter.into();
+        self
+    }
+
+    pub fn forward<T>(mut self, table: &T) -> Self
     where
         T: SdkTableWithPrimaryKey<Row = R>,
     {
-        self.inserts(table).deletes(table).updates(table)
+        let RowMessagesMask {
+            insert,
+            update,
+            delete,
+        } = self.filter;
+        if insert {
+            self = self.inserts(table);
+        }
+        if update {
+            self = self.updates(table);
+        }
+        if delete {
+            self = self.deletes(table);
+        }
+        self
     }
 
-    pub fn inserts<T>(self, table: &T) -> Self
+    pub fn forward_keyless<T>(mut self, table: &T) -> Self
+    where
+        T: SdkTable<Row = R>,
+    {
+        let RowMessagesMask { insert, delete, .. } = self.filter;
+        if insert {
+            self = self.inserts(table);
+        }
+        if delete {
+            self = self.deletes(table);
+        }
+        self
+    }
+
+    fn inserts<T>(self, table: &T) -> Self
     where
         T: SdkTable<Row = R>,
     {
@@ -27,7 +67,7 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn deletes<T>(self, table: &T) -> Self
+    fn deletes<T>(self, table: &T) -> Self
     where
         T: SdkTable<Row = R>,
     {
@@ -36,7 +76,7 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn updates<T>(self, table: &T) -> Self
+    fn updates<T>(self, table: &T) -> Self
     where
         T: SdkTableWithPrimaryKey<Row = R>,
     {
@@ -54,7 +94,7 @@ mod tests {
     use super::RowForwarder;
     use crate::row::row_channel::{RowChannel, drain_row_sink};
     use crate::test_support::FakeTable;
-    use crate::{RowDeleted, RowInserted, RowUpdated};
+    use crate::{RowDeleted, RowInserted, RowMessagesMask, RowUpdated};
 
     #[derive(Clone, PartialEq, Debug)]
     struct Widget {
@@ -106,6 +146,7 @@ mod tests {
         let sink = app.world().resource::<RowChannel<Widget>>().sink();
 
         RowForwarder::new(sink).forward(&FakeTable {
+            rows: vec![],
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
@@ -123,17 +164,24 @@ mod tests {
     }
 
     #[test]
-    fn only_wires_the_callbacks_you_select() {
+    fn forward_with_a_partial_filter_wires_only_those_callbacks() {
         let mut app = widget_app();
         let sink = app.world().resource::<RowChannel<Widget>>().sink();
 
-        // The fake has an update queued, but we only wire inserts + deletes (e.g. a no-PK table).
+        // The fake has an update queued, but the filter selects only inserts + deletes.
         let fake = FakeTable {
+            rows: vec![],
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
         };
-        RowForwarder::new(sink).inserts(&fake).deletes(&fake);
+        RowForwarder::new(sink)
+            .with_filter(RowMessagesMask {
+                insert: true,
+                update: false,
+                delete: true,
+            })
+            .forward(&fake);
 
         app.update();
         app.update();
@@ -142,7 +190,33 @@ mod tests {
         assert_eq!(app.world().resource::<Deletes>().0, vec![Widget { id: 3 }]);
         assert!(
             app.world().resource::<Updates>().0.is_empty(),
-            "on_update was not wired, so no RowUpdated must surface",
+            "update is deselected, so forward must not wire on_update — no RowUpdated may surface",
+        );
+    }
+
+    #[test]
+    fn forward_with_an_empty_filter_wires_nothing() {
+        let mut app = widget_app();
+        let sink = app.world().resource::<RowChannel<Widget>>().sink();
+
+        let fake = FakeTable {
+            rows: vec![],
+            inserts: vec![Widget { id: 1 }],
+            updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
+            deletes: vec![Widget { id: 3 }],
+        };
+        RowForwarder::new(sink)
+            .with_filter(RowMessagesMask::NONE)
+            .forward(&fake);
+
+        app.update();
+        app.update();
+
+        assert!(
+            app.world().resource::<Inserts>().0.is_empty()
+                && app.world().resource::<Updates>().0.is_empty()
+                && app.world().resource::<Deletes>().0.is_empty(),
+            "an empty filter selects no events, so forward wires no callbacks and nothing surfaces",
         );
     }
 }

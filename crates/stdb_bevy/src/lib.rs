@@ -4,7 +4,7 @@
 
 use std::fmt::Debug;
 
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy::prelude::*;
 
 use crate::connection::stdb_connection_driver::{
     StdbConnectionDriver, connect_on_stdbconnect, disconnect_on_stdbdisconnect,
@@ -17,6 +17,7 @@ use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
+use crate::row::row_messages_resync::drop_stdbpreviousconnection_after_resync;
 use crate::subscription::subscription_channel::{SubscriptionChannel, drain_subscription_sink};
 use crate::subscription::subscription_components::{
     reset_subscriptions_on_stdbdisconnected, subscribe_pending_subscriptions,
@@ -24,7 +25,7 @@ use crate::subscription::subscription_components::{
 };
 
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
-pub use crate::connection::stdb_connection::{StdbConn, StdbConnection};
+pub use crate::connection::stdb_connection::{StdbConn, StdbConnection, StdbPreviousConnection};
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
 pub use crate::connection::stdb_token::StdbToken;
 pub use crate::error::{StdbBevyError, StdbBevyErrorEvent};
@@ -33,7 +34,9 @@ pub use crate::lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected};
 pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
-pub use crate::row::row_messages::{RowDeleted, RowInserted, RowUpdated};
+pub use crate::row::row_messages::{
+    KeylessMessagesMask, RowDeleted, RowInserted, RowMessagesMask, RowUpdated,
+};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_connection_driver::SdkConnectionDriver, sdk_subscription_driver::SdkSubscriptionDriver,
@@ -64,6 +67,7 @@ mod utils;
 pub enum StdbSystemSet {
     LifecycleEvents,
     RowMessagesPush,
+    Resync,
     Main,
 }
 
@@ -146,6 +150,11 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
             (
                 StdbSystemSet::LifecycleEvents,
                 StdbSystemSet::RowMessagesPush,
+                StdbSystemSet::Resync.run_if(
+                    resource_exists::<StdbPreviousConnection<Cd::Conn>>
+                        .and(is_stdb_connected)
+                        .and(is_subscriptions_settled),
+                ),
                 StdbSystemSet::Main,
             )
                 .chain(),
@@ -182,6 +191,10 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
             tick_reconnectstate::<Cd>
                 .run_if(should_tick_reconnectstate)
                 .in_set(StdbSystemSet::Main),
+        );
+        app.add_systems(
+            bevy::app::Update,
+            drop_stdbpreviousconnection_after_resync::<Cd::Conn>.in_set(StdbSystemSet::Resync),
         );
     }
 

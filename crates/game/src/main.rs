@@ -17,7 +17,12 @@ fn main() {
                 "monster-master",
                 DbConnection::frame_tick,
             )
-            .add_tables([stdb_table!(player => Player)])
+            .add_tables([stdb_table!(player => Player, key = identity)])
+            // .add_tables([stdb_bevy::TableRegistration::pk(
+            //     |conn, fwd| fwd.forward(&conn.db().player()),
+            //     |conn| conn.db().player().iter().collect(),
+            //     |row| row.identity,
+            // )])
             .with_connect_on_startup(),
         )
         .init_resource::<OnlineCounter>()
