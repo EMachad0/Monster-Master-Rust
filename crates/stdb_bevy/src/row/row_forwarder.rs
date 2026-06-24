@@ -80,7 +80,7 @@ mod tests {
     use super::RowForwarder;
     use crate::row::row_channel::{RowChannel, drain_row_sink};
     use crate::test_support::FakeTable;
-    use crate::{RowDeleted, RowInserted, RowUpdated};
+    use crate::{RowDeleted, RowInserted, RowMessagesMask, RowUpdated};
 
     #[derive(Clone, PartialEq, Debug)]
     struct Widget {
@@ -150,18 +150,24 @@ mod tests {
     }
 
     #[test]
-    fn only_wires_the_callbacks_you_select() {
+    fn forward_with_a_partial_filter_wires_only_those_callbacks() {
         let mut app = widget_app();
         let sink = app.world().resource::<RowChannel<Widget>>().sink();
 
-        // The fake has an update queued, but we only wire inserts + deletes (e.g. a no-PK table).
+        // The fake has an update queued, but the filter selects only inserts + deletes.
         let fake = FakeTable {
             rows: vec![],
             inserts: vec![Widget { id: 1 }],
             updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
             deletes: vec![Widget { id: 3 }],
         };
-        RowForwarder::new(sink).inserts(&fake).deletes(&fake);
+        RowForwarder::new(sink)
+            .with_filter(RowMessagesMask {
+                insert: true,
+                update: false,
+                delete: true,
+            })
+            .forward(&fake);
 
         app.update();
         app.update();
@@ -170,7 +176,33 @@ mod tests {
         assert_eq!(app.world().resource::<Deletes>().0, vec![Widget { id: 3 }]);
         assert!(
             app.world().resource::<Updates>().0.is_empty(),
-            "on_update was not wired, so no RowUpdated must surface",
+            "update is deselected, so forward must not wire on_update — no RowUpdated may surface",
+        );
+    }
+
+    #[test]
+    fn forward_with_an_empty_filter_wires_nothing() {
+        let mut app = widget_app();
+        let sink = app.world().resource::<RowChannel<Widget>>().sink();
+
+        let fake = FakeTable {
+            rows: vec![],
+            inserts: vec![Widget { id: 1 }],
+            updates: vec![(Widget { id: 1 }, Widget { id: 2 })],
+            deletes: vec![Widget { id: 3 }],
+        };
+        RowForwarder::new(sink)
+            .with_filter(RowMessagesMask::NONE)
+            .forward(&fake);
+
+        app.update();
+        app.update();
+
+        assert!(
+            app.world().resource::<Inserts>().0.is_empty()
+                && app.world().resource::<Updates>().0.is_empty()
+                && app.world().resource::<Deletes>().0.is_empty(),
+            "an empty filter selects no events, so forward wires no callbacks and nothing surfaces",
         );
     }
 }
