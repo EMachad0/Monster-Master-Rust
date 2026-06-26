@@ -24,6 +24,7 @@ crossbeam-channel = "0.5.15"
 thiserror = "2.0.18"
 rand = "0.10.1"
 http = "1.4.1"
+smallvec = "1.15.2"
 # --- internal ---
 stdb_bevy = { path = "crates/stdb_bevy" }
 stdb_bindings = { path = "crates/stdb_bindings" }

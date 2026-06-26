@@ -25,6 +25,8 @@ use crate::subscription::subscription_components::{
     unsubscribe_on_subscription_despawn,
 };
 
+pub use crate::component_sync::stdb_sync::StdbSync;
+pub use crate::component_sync::sync_app_ext::SyncAppExt;
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection, StdbPreviousConnection};
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
@@ -56,6 +58,7 @@ pub use crate::subscription::subscription_events::{
 pub use crate::utils::backoff::{Backoff, Jitter};
 pub use spacetimedb_sdk as __sdk;
 
+mod component_sync;
 mod connection;
 mod error;
 mod lifecycle;

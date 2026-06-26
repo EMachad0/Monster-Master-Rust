@@ -16,6 +16,7 @@ thiserror.workspace = true
 spacetimedb-sdk.workspace = true
 rand.workspace = true
 http.workspace = true
+smallvec.workspace = true
 
 # Enables `test-support` when building this crate's own integration tests under `tests/`
 # (they need the public fakes). A self-dev-dependency is the standard way to turn a feature on for
