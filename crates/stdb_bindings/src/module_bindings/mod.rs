@@ -6,12 +6,18 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
+pub mod cursor_table;
+pub mod cursor_type;
 pub mod player_table;
 pub mod player_type;
+pub mod set_cursor_position_reducer;
 pub mod set_name_reducer;
 
+pub use cursor_table::*;
+pub use cursor_type::Cursor;
 pub use player_table::*;
 pub use player_type::Player;
+pub use set_cursor_position_reducer::set_cursor_position;
 pub use set_name_reducer::set_name;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -22,6 +28,7 @@ pub use set_name_reducer::set_name;
 /// to indicate which reducer caused the event.
 
 pub enum Reducer {
+    SetCursorPosition { x: f32, y: f32 },
     SetName { name: String },
 }
 
@@ -32,6 +39,7 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
+            Reducer::SetCursorPosition { .. } => "set_cursor_position",
             Reducer::SetName { .. } => "set_name",
             _ => unreachable!(),
         }
@@ -39,6 +47,12 @@ impl __sdk::Reducer for Reducer {
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
+            Reducer::SetCursorPosition { x, y } => {
+                __sats::bsatn::to_vec(&set_cursor_position_reducer::SetCursorPositionArgs {
+                    x: x.clone(),
+                    y: y.clone(),
+                })
+            }
             Reducer::SetName { name } => {
                 __sats::bsatn::to_vec(&set_name_reducer::SetNameArgs { name: name.clone() })
             }
@@ -51,6 +65,7 @@ impl __sdk::Reducer for Reducer {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct DbUpdate {
+    cursor: __sdk::TableUpdate<Cursor>,
     player: __sdk::TableUpdate<Player>,
 }
 
@@ -60,6 +75,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
+                "cursor" => db_update
+                    .cursor
+                    .append(cursor_table::parse_table_update(table_update)?),
                 "player" => db_update
                     .player
                     .append(player_table::parse_table_update(table_update)?),
@@ -89,6 +107,9 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.cursor = cache
+            .apply_diff_to_table::<Cursor>("cursor", &self.cursor)
+            .with_updates_by_pk(|row| &row.id);
         diff.player = cache
             .apply_diff_to_table::<Player>("player", &self.player)
             .with_updates_by_pk(|row| &row.identity);
@@ -99,6 +120,9 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "cursor" => db_update
+                    .cursor
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "player" => db_update
                     .player
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
@@ -115,6 +139,9 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "cursor" => db_update
+                    .cursor
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "player" => db_update
                     .player
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -133,6 +160,7 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
+    cursor: __sdk::TableAppliedDiff<'r, Cursor>,
     player: __sdk::TableAppliedDiff<'r, Player>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
@@ -147,6 +175,7 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
+        callbacks.invoke_table_row_callbacks::<Cursor>("cursor", &self.cursor, event);
         callbacks.invoke_table_row_callbacks::<Player>("player", &self.player, event);
     }
 }
@@ -808,7 +837,8 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type QueryBuilder = __sdk::QueryBuilder;
 
     fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
+        cursor_table::register_table(client_cache);
         player_table::register_table(client_cache);
     }
-    const ALL_TABLE_NAMES: &'static [&'static str] = &["player"];
+    const ALL_TABLE_NAMES: &'static [&'static str] = &["cursor", "player"];
 }

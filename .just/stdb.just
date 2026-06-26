@@ -6,8 +6,8 @@ module := env_var_or_default("SPACETIMEDB_MODULE", "monster-master")
 uri := env_var_or_default("SPACETIMEDB_URI", "http://127.0.0.1:3000")
 
 [doc("Build + publish the Module to the SpacetimeDB server (needs the server running)")]
-publish:
-    {{ stdb }} publish --yes --server {{ uri }} --module-path crates/stdb_module {{ module }}
+publish *args:
+    {{ stdb }} publish --yes --server {{ uri }} --module-path crates/stdb_module {{ module }} {{ args }}
 
 [doc("Regenerate the committed client Bindings from the Module (no server required)")]
 generate:
