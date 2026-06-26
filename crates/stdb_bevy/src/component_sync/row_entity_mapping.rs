@@ -100,6 +100,7 @@ pub(super) fn deregister_sync_entity_on_remove_stdbsync<S: StdbSync>(
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::query::QuerySingleError;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
@@ -199,6 +200,57 @@ mod tests {
             found.is_empty(),
             "an absent key must yield an empty slice, never a panic — despawn and join sites \
              call get on keys that may not be present",
+        );
+    }
+
+    #[test]
+    fn single_returns_the_sole_entity_for_a_key() {
+        let mut app = index_app();
+        let only = app.world_mut().spawn(Widget { id: 1 }).id();
+
+        let result = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| index.single(&1))
+            .unwrap();
+
+        assert_eq!(
+            result.ok(),
+            Some(only),
+            "exactly one entity under the key resolves to that entity (the 1:1 join)",
+        );
+    }
+
+    #[test]
+    fn single_errs_no_entities_for_an_absent_key() {
+        let mut app = index_app();
+        // A populated key exists, but it is not the one we query.
+        app.world_mut().spawn(Widget { id: 1 });
+
+        let result = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| index.single(&99))
+            .unwrap();
+
+        assert!(
+            matches!(result, Err(QuerySingleError::NoEntities(_))),
+            "a key with no entity resolves to NoEntities, the join's unknown-key signal",
+        );
+    }
+
+    #[test]
+    fn single_errs_multiple_entities_when_several_share_a_key() {
+        let mut app = index_app();
+        app.world_mut().spawn(Widget { id: 1 });
+        app.world_mut().spawn(Widget { id: 1 });
+
+        let result = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| index.single(&1))
+            .unwrap();
+
+        assert!(
+            matches!(result, Err(QuerySingleError::MultipleEntities(_))),
+            "several entities sharing a key resolves to MultipleEntities, never a silent first-of-many",
         );
     }
 }
