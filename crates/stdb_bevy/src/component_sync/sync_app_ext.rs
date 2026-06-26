@@ -4,10 +4,11 @@ use crate::{
     StdbSystemSet,
     component_sync::{
         projection::project_component_internal,
-        stdb_sync::{
-            StdbSync, SyncEntityMap, deregister_sync_entity_on_remove_stdbsync,
-            register_sync_entity_on_add_stdbsync, sync_component_internal,
+        row_entity_mapping::{
+            SyncEntityMap, deregister_sync_entity_on_remove_stdbsync,
+            register_sync_entity_on_add_stdbsync,
         },
+        stdb_sync::{StdbSync, sync_component_internal},
     },
 };
 

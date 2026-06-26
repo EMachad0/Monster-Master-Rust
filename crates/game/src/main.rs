@@ -32,7 +32,6 @@ fn main() {
             .with_connect_on_startup(),
         )
         .init_resource::<player::OnlineCounter>()
-        .init_resource::<player::PlayerIdentityMap>()
         .sync_component::<player::Player>()
         .sync_component::<cursor::Cursor>()
         .projection::<cursor::Cursor, Transform>()

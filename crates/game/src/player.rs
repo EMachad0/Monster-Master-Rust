@@ -1,6 +1,6 @@
-use bevy::{platform::collections::HashMap, prelude::*};
+use bevy::prelude::*;
 use spacetimedb_sdk::Identity;
-use stdb_bevy::{RowDeleted, RowInserted, StdbSync, Subscription};
+use stdb_bevy::{RowDeleted, RowEntities, RowInserted, StdbSync, Subscription};
 
 pub fn subscribe_to_players(mut commands: Commands) {
     commands.spawn(Subscription::query(
@@ -29,9 +29,6 @@ impl OnlineCounter {
         self.0 -= 1;
     }
 }
-
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct PlayerIdentityMap(HashMap<Identity, Entity>);
 
 #[derive(Clone, Copy, Component)]
 #[relationship(relationship_target = IdentityOwnership)]
@@ -75,12 +72,10 @@ pub fn spawn_player_on_insert(
     mut messages: MessageReader<RowInserted<stdb_bindings::Player>>,
     mut commands: Commands,
     mut counter: ResMut<OnlineCounter>,
-    mut player_identity_map: ResMut<PlayerIdentityMap>,
 ) {
     for message in messages.read() {
         counter.inc();
-        let entity = commands.spawn(Player::from(message.row())).id();
-        player_identity_map.insert(message.row().identity, entity);
+        commands.spawn(Player::from(message.row()));
         info!("{} player(s) online", counter.0);
     }
 }
@@ -90,11 +85,11 @@ pub fn despawn_player_on_delete(
     mut messages: MessageReader<RowDeleted<stdb_bindings::Player>>,
     mut commands: Commands,
     mut counter: ResMut<OnlineCounter>,
-    mut player_identity_map: ResMut<PlayerIdentityMap>,
+    row_entities: RowEntities<Player>,
 ) {
     for message in messages.read() {
-        if let Some(entity) = player_identity_map.remove(&message.row().identity) {
-            commands.entity(entity).despawn();
+        for entity in row_entities.get_by_row(message.row()) {
+            commands.entity(*entity).despawn();
         }
         counter.dec();
         info!("{} player(s) online", counter.0);

@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use spacetimedb_sdk::{DbContext, Identity};
-use stdb_bevy::{RowDeleted, RowInserted, StdbConnection, StdbSync, Subscription};
+use stdb_bevy::{RowDeleted, RowEntities, RowInserted, StdbConnection, StdbSync, Subscription};
 use stdb_bindings::{DbConnection, set_cursor_position};
 
-use crate::player::{Own, OwnedBy, Player, PlayerIdentityMap};
+use crate::player::{Own, OwnedBy, Player};
 
 pub fn subscribe_to_cursors(mut commands: Commands) {
     commands.spawn(Subscription::table("cursor"));
@@ -45,12 +45,12 @@ pub fn spawn_cursor_on_insert(
     mut reader: MessageReader<RowInserted<stdb_bindings::Cursor>>,
     mut commands: Commands,
     connection: Res<StdbConnection<DbConnection>>,
-    player_identity_map: Res<PlayerIdentityMap>,
+    player_entities: RowEntities<Player>,
     players: Query<&Player>,
 ) {
     for message in reader.read() {
         let player_identity = message.row().id;
-        let player_entity = *player_identity_map.get(&player_identity).unwrap();
+        let player_entity = player_entities.single(&player_identity).unwrap();
         let player = players.get(player_entity).unwrap();
 
         let mut entity_commands = commands.spawn_scene(bsn! {
@@ -69,11 +69,11 @@ pub fn spawn_cursor_on_insert(
 pub fn despawn_cursor_on_delete(
     mut reader: MessageReader<RowDeleted<stdb_bindings::Cursor>>,
     mut commands: Commands,
-    cursors: Query<(Entity, &Cursor)>,
+    row_entities: RowEntities<Cursor>,
 ) {
     for message in reader.read() {
-        if let Some((entity, _)) = cursors.iter().find(|(_, c)| c.id == message.row().id) {
-            commands.entity(entity).despawn();
+        for entity in row_entities.get_by_row(message.row()) {
+            commands.entity(*entity).despawn();
         }
     }
 }
