@@ -253,4 +253,64 @@ mod tests {
             "several entities sharing a key resolves to MultipleEntities, never a silent first-of-many",
         );
     }
+
+    #[test]
+    fn get_by_row_returns_the_entities_under_the_rows_key() {
+        let mut app = index_app();
+        let a = app.world_mut().spawn(Widget { id: 1 }).id();
+        let b = app.world_mut().spawn(Widget { id: 1 }).id();
+
+        let found = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| {
+                index.get_by_row(&WidgetRow { id: 1 }).to_vec()
+            })
+            .unwrap();
+
+        assert_eq!(
+            found.len(),
+            2,
+            "get_by_row derives the key from the row and returns every entity under it",
+        );
+        assert!(
+            found.contains(&a) && found.contains(&b),
+            "the row's id is projected to the same key the entities were indexed under",
+        );
+    }
+
+    #[test]
+    fn single_by_row_resolves_the_sole_entity_for_the_rows_key() {
+        let mut app = index_app();
+        let only = app.world_mut().spawn(Widget { id: 1 }).id();
+
+        let result = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| index.single_by_row(&WidgetRow { id: 1 }))
+            .unwrap();
+
+        assert_eq!(
+            result.ok(),
+            Some(only),
+            "single_by_row derives the key from the row and resolves its sole entity",
+        );
+    }
+
+    #[test]
+    fn get_by_row_returns_an_empty_slice_for_an_unmatched_row() {
+        let mut app = index_app();
+        // An entity exists under key 1, but the row we query carries a different key.
+        app.world_mut().spawn(Widget { id: 1 });
+
+        let found = app
+            .world_mut()
+            .run_system_once(|index: RowEntities<Widget>| {
+                index.get_by_row(&WidgetRow { id: 99 }).to_vec()
+            })
+            .unwrap();
+
+        assert!(
+            found.is_empty(),
+            "a row whose derived key matches no entity yields an empty slice, never a panic",
+        );
+    }
 }
