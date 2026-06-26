@@ -10,6 +10,7 @@ pub struct Player {
     pub identity: __sdk::Identity,
     pub name: String,
     pub online: bool,
+    pub color: u8,
 }
 
 impl __sdk::InModule for Player {
@@ -23,6 +24,7 @@ pub struct PlayerCols {
     pub identity: __sdk::__query_builder::Col<Player, __sdk::Identity>,
     pub name: __sdk::__query_builder::Col<Player, String>,
     pub online: __sdk::__query_builder::Col<Player, bool>,
+    pub color: __sdk::__query_builder::Col<Player, u8>,
 }
 
 impl __sdk::__query_builder::HasCols for Player {
@@ -32,6 +34,7 @@ impl __sdk::__query_builder::HasCols for Player {
             identity: __sdk::__query_builder::Col::new(table_name, "identity"),
             name: __sdk::__query_builder::Col::new(table_name, "name"),
             online: __sdk::__query_builder::Col::new(table_name, "online"),
+            color: __sdk::__query_builder::Col::new(table_name, "color"),
         }
     }
 }

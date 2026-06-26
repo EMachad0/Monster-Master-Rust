@@ -16,6 +16,7 @@ bevy = { workspace = true, features = [
     "webgl2",
     "x11",
     "wayland",
+    "scene",
 ] }
 log.workspace = true
 stdb_bevy.workspace = true

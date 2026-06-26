@@ -12,6 +12,16 @@ pub struct Player {
     identity: Identity,
     name: String,
     online: bool,
+    #[auto_inc]
+    color: u8,
+}
+
+#[table(accessor = cursor, public)]
+pub struct Cursor {
+    #[primary_key]
+    id: Identity,
+    x: f32,
+    y: f32,
 }
 
 /// Runs once when the module is first published.
@@ -23,19 +33,26 @@ pub fn init(_ctx: &ReducerContext) {
 /// Runs when a client establishes a connection. Marks them online (creating the row if new).
 #[reducer(client_connected)]
 pub fn client_connected(ctx: &ReducerContext) {
-    let id = ctx.sender();
-    if let Some(player) = ctx.db.player().identity().find(id) {
+    let identity = ctx.sender();
+    if let Some(player) = ctx.db.player().identity().find(identity) {
         ctx.db.player().identity().update(Player {
             online: true,
             ..player
         });
     } else {
         ctx.db.player().insert(Player {
-            identity: id,
+            identity,
             name: "anonymous".to_string(),
             online: true,
+            color: 0,
         });
     }
+
+    let _ = ctx.db.cursor().try_insert(Cursor {
+        id: ctx.sender(),
+        x: 0.0,
+        y: 0.0,
+    });
 }
 
 /// Runs when a client disconnects. Marks them offline.
@@ -47,6 +64,8 @@ pub fn client_disconnected(ctx: &ReducerContext) {
             ..player
         });
     }
+
+    let _ = ctx.db.cursor().id().delete(ctx.sender());
 }
 
 /// Lets a player set their display name. Proves a client→server reducer call round-trips.
@@ -66,4 +85,13 @@ pub fn set_name(ctx: &ReducerContext, name: String) -> Result<(), String> {
         }
         None => Err("no player for this connection".to_string()),
     }
+}
+
+#[reducer]
+pub fn set_cursor_position(ctx: &ReducerContext, x: f32, y: f32) {
+    ctx.db.cursor().id().update(Cursor {
+        id: ctx.sender(),
+        x,
+        y,
+    });
 }

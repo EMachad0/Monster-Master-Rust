@@ -1,6 +1,9 @@
 use bevy::prelude::*;
-use stdb_bevy::{RowDeleted, RowInserted, StdbPlugin, Subscription, is_stdb_connected, stdb_table};
-use stdb_bindings::{DbConnection, Player, PlayerTableAccess};
+use stdb_bevy::{StdbPlugin, SyncAppExt, is_stdb_connected, stdb_table};
+use stdb_bindings::{CursorTableAccess, DbConnection, PlayerTableAccess};
+
+mod cursor;
+mod player;
 
 fn main() {
     App::new()
@@ -17,7 +20,10 @@ fn main() {
                 "monster-master",
                 DbConnection::frame_tick,
             )
-            .add_tables([stdb_table!(player => Player, key = identity)])
+            .add_tables([
+                stdb_table!(player => Player, key = identity),
+                stdb_table!(cursor => Cursor, key = id),
+            ])
             // .add_tables([stdb_bevy::TableRegistration::pk(
             //     |conn, fwd| fwd.forward(&conn.db().player()),
             //     |conn| conn.db().player().iter().collect(),
@@ -25,14 +31,33 @@ fn main() {
             // )])
             .with_connect_on_startup(),
         )
-        .init_resource::<OnlineCounter>()
-        .add_systems(Startup, (setup, subscribe_to_players))
+        .init_resource::<player::OnlineCounter>()
+        .init_resource::<player::PlayerIdentityMap>()
+        .sync_component::<player::Player>()
+        .sync_component::<cursor::Cursor>()
+        .projection::<cursor::Cursor, Transform>()
+        .add_systems(
+            Startup,
+            (
+                setup,
+                player::subscribe_to_players,
+                cursor::subscribe_to_cursors,
+            ),
+        )
         .add_systems(
             Update,
             (
-                report_players_on_player_inserted,
-                report_players_on_player_deleted,
+                (
+                    player::spawn_player_on_insert,
+                    player::despawn_player_on_delete,
+                ),
+                (
+                    cursor::spawn_cursor_on_insert,
+                    cursor::despawn_cursor_on_delete,
+                ),
+                cursor::track_cursor,
             )
+                .chain()
                 .run_if(is_stdb_connected),
         )
         .run();
@@ -40,51 +65,4 @@ fn main() {
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
-}
-
-fn subscribe_to_players(mut commands: Commands) {
-    commands.spawn(Subscription::query(
-        "SELECT * FROM player WHERE online = true;",
-    ));
-}
-
-#[derive(Debug, Default, Resource)]
-pub struct OnlineCounter(pub i32);
-
-impl OnlineCounter {
-    pub fn inc(&mut self) {
-        self.0 += 1;
-    }
-
-    pub fn dec(&mut self) {
-        self.0 -= 1;
-    }
-}
-
-/// The connection proof: log the online player count whenever it changes.
-fn report_players_on_player_inserted(
-    mut messages: MessageReader<RowInserted<Player>>,
-    mut counter: ResMut<OnlineCounter>,
-) {
-    if messages.is_empty() {
-        return;
-    }
-    for _ in messages.read() {
-        counter.inc();
-    }
-    info!("{} player(s) online", counter.0);
-}
-
-/// The connection proof: log the online player count whenever it changes.
-fn report_players_on_player_deleted(
-    mut messages: MessageReader<RowDeleted<Player>>,
-    mut counter: ResMut<OnlineCounter>,
-) {
-    if messages.is_empty() {
-        return;
-    }
-    for _ in messages.read() {
-        counter.dec();
-    }
-    info!("{} player(s) online", counter.0);
 }
