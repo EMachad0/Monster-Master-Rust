@@ -25,6 +25,7 @@ use crate::subscription::subscription_components::{
     unsubscribe_on_subscription_despawn,
 };
 
+pub use crate::component_sync::row_entity_mapping::RowEntities;
 pub use crate::component_sync::stdb_sync::StdbSync;
 pub use crate::component_sync::sync_app_ext::SyncAppExt;
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};

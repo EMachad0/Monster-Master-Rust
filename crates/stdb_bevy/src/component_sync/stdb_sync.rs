@@ -1,62 +1,8 @@
 use std::hash::Hash;
 
-use bevy::{ecs::component::Mutable, platform::collections::HashMap, prelude::*};
-use smallvec::SmallVec;
+use bevy::{ecs::component::Mutable, prelude::*};
 
-use crate::{RowUpdated, StdbRow};
-
-#[derive(Resource, Deref, DerefMut)]
-pub(super) struct SyncEntityMap<R: StdbSync>(HashMap<R::Key, SmallVec<[Entity; 4]>>);
-
-impl<R: StdbSync> SyncEntityMap<R> {
-    pub fn new() -> Self {
-        Self(HashMap::default())
-    }
-}
-
-impl<R: StdbSync> Default for SyncEntityMap<R> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub(super) fn register_sync_entity_on_add_stdbsync<S: StdbSync>(
-    observer: On<Add, S>,
-    mut sync_entity_map: ResMut<SyncEntityMap<S>>,
-    sync_components: Query<&S>,
-) {
-    let entity = observer.entity;
-    match sync_components.get(entity) {
-        Ok(c) => sync_entity_map.entry(c.key()).or_default().push(entity),
-        Err(e) => bevy::log::error!("{}", e),
-    };
-}
-
-pub(super) fn deregister_sync_entity_on_remove_stdbsync<S: StdbSync>(
-    observer: On<Remove, S>,
-    mut sync_entity_map: ResMut<SyncEntityMap<S>>,
-    sync_components: Query<&S>,
-) {
-    let entity = observer.entity;
-    match sync_components.get(entity) {
-        Ok(c) => {
-            if let Some(v) = sync_entity_map.get_mut(&c.key()) {
-                if let Some(idx) = v.iter().position(|e| *e == entity) {
-                    v.swap_remove(idx);
-                } else {
-                    bevy::log::warn!(
-                        "attempting to remove entity from SyncEntityMap but it is already removed"
-                    );
-                }
-            } else {
-                bevy::log::warn!(
-                    "attempting to remove entity from initialized key in SyncEntityMap"
-                );
-            }
-        }
-        Err(e) => bevy::log::error!("{}", e),
-    };
-}
+use crate::{RowUpdated, StdbRow, component_sync::row_entity_mapping::SyncEntityMap};
 
 pub trait StdbSync:
     Component<Mutability = Mutable> + PartialEq + for<'r> From<&'r Self::Row>
@@ -96,6 +42,9 @@ mod tests {
 
     use super::*;
     use crate::RowUpdated;
+    use crate::component_sync::row_entity_mapping::{
+        deregister_sync_entity_on_remove_stdbsync, register_sync_entity_on_add_stdbsync,
+    };
 
     /// A stand-in server row. A real Module row is `Clone + Send + Sync + 'static + PartialEq`.
     #[derive(Clone, PartialEq, Debug)]
