@@ -23,6 +23,7 @@ impl<C: StdbConn> TableRegistration<C> {
         snapshot: fn(&C) -> Vec<R>,
         key: fn(&R) -> K,
         messages_mask: RowMessagesMask,
+        label: &'static str,
     ) -> Self
     where
         R: StdbRow,
@@ -30,7 +31,7 @@ impl<C: StdbConn> TableRegistration<C> {
     {
         Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, forward, snapshot, key, messages_mask);
+                add_stdb_table(app, forward, snapshot, key, messages_mask, label);
             }),
             mark: std::marker::PhantomData,
         }
@@ -40,13 +41,21 @@ impl<C: StdbConn> TableRegistration<C> {
         forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
         snapshot: fn(&C) -> Vec<R>,
         messages_mask: KeylessMessagesMask,
+        label: &'static str,
     ) -> Self
     where
         R: StdbRow + crate::sdk_impl::Serialize,
     {
         Self {
             install: Box::new(move |app| {
-                add_stdb_table(app, forward, snapshot, bsatn_key, messages_mask.into());
+                add_stdb_table(
+                    app,
+                    forward,
+                    snapshot,
+                    bsatn_key,
+                    messages_mask.into(),
+                    label,
+                );
             }),
             mark: std::marker::PhantomData,
         }
@@ -63,6 +72,7 @@ pub(crate) fn add_stdb_table<C, R, K>(
     snapshot: fn(&C) -> Vec<R>,
     key: fn(&R) -> K,
     messages_mask: RowMessagesMask,
+    label: &'static str,
 ) where
     C: StdbConn,
     R: StdbRow,
@@ -85,7 +95,7 @@ pub(crate) fn add_stdb_table<C, R, K>(
 
     app.add_systems(
         bevy::app::Update,
-        resync_row_messages_system(snapshot, key, messages_mask)
+        resync_row_messages_system(snapshot, key, messages_mask, label)
             .in_set(StdbSystemSet::Resync)
             .before(drop_stdbpreviousconnection_after_resync::<C>),
     );
@@ -93,7 +103,7 @@ pub(crate) fn add_stdb_table<C, R, K>(
     app.add_systems(
         bevy::app::Update,
         (
-            drain_row_sink::<R>.run_if(not(resource_exists::<StdbPreviousConnection<C>>)),
+            drain_row_sink::<R>(label).run_if(not(resource_exists::<StdbPreviousConnection<C>>)),
             clear_row_sink::<R>.run_if(resource_exists::<StdbPreviousConnection<C>>),
         )
             .in_set(StdbSystemSet::RowMessagesPush),
@@ -114,6 +124,7 @@ macro_rules! stdb_table {
             },
             |row| row.$key.clone(),
             $crate::RowMessagesMask::ALL,
+            stringify!($accessor),
         )
     };
 
@@ -129,6 +140,7 @@ macro_rules! stdb_table {
             },
             |row| row.$key.clone(),
             $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },
+            stringify!($accessor),
         )
     };
 
@@ -143,6 +155,7 @@ macro_rules! stdb_table {
                 conn.db().$accessor().iter().collect()
             },
             $crate::KeylessMessagesMask::INSERT_DELETE,
+            stringify!($accessor),
         )
     };
 
@@ -157,6 +170,7 @@ macro_rules! stdb_table {
                 conn.db().$accessor().iter().collect()
             },
             $crate::KeylessMessagesMask { $($cb: true,)+ ..$crate::KeylessMessagesMask::NONE },
+            stringify!($accessor),
         )
     };
 }

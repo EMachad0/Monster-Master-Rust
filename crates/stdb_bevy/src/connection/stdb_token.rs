@@ -25,7 +25,7 @@ impl StdbToken {
         match self.0.lock() {
             Ok(token) => token.clone(),
             Err(err) => {
-                bevy::log::error!("could not aquire token lock {}", err);
+                bevy::log::error!(%err, "token lock poisoned");
                 None
             }
         }
@@ -35,7 +35,7 @@ impl StdbToken {
         match self.0.lock() {
             Ok(mut inner) => *inner = Some(token.into()),
             Err(err) => {
-                bevy::log::error!("could not aquire token lock {}", err);
+                bevy::log::error!(%err, "token lock poisoned");
             }
         };
     }
@@ -44,7 +44,7 @@ impl StdbToken {
         match self.0.lock() {
             Ok(mut inner) => *inner = None,
             Err(err) => {
-                bevy::log::error!("could not aquire token lock {}", err);
+                bevy::log::error!(%err, "token lock poisoned");
             }
         };
     }

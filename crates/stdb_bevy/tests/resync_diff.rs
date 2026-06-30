@@ -93,6 +93,7 @@ fn fence_app_emitting(old: Vec<Player>, new: Vec<Player>, emit: RowMessagesMask)
                 |c| c.db().player().iter().collect(),
                 |p| p.id,
                 emit,
+                "player",
             ),
         ]),
     );

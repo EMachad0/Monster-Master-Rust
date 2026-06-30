@@ -28,6 +28,8 @@ fn main() {
             //     |conn, fwd| fwd.forward(&conn.db().player()),
             //     |conn| conn.db().player().iter().collect(),
             //     |row| row.identity,
+            //     stdb_bevy::RowMessagesMask::ALL,
+            //     "player",
             // )])
             .with_connect_on_startup(),
         )

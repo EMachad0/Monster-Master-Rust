@@ -111,6 +111,7 @@ fn fence_app_keyless(old: Vec<Monster>, new: Vec<Monster>, emit: KeylessMessages
                 |conn, fwd| fwd.forward_keyless(&conn.db().monster()),
                 |c| c.db().monster().iter().collect(),
                 emit,
+                "monster",
             ),
         ]),
     );

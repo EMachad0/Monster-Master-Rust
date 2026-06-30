@@ -9,6 +9,7 @@ pub(crate) fn resync_row_messages_system<C, R, K>(
     snapshot: fn(&C) -> Vec<R>,
     get_key: fn(&R) -> K,
     row_messages_mask: RowMessagesMask,
+    label: &'static str,
 ) -> impl FnMut(
     Res<StdbPreviousConnection<C>>,
     Res<StdbConnection<C>>,
@@ -27,6 +28,10 @@ where
         delete,
     } = row_messages_mask;
     move |previous_conn, conn, mut insert_writer, mut update_writer, mut delete_writer| {
+        // Tally the diff this resync emits so a reconnect's effect on each table is one info line.
+        let mut inserted: u64 = 0;
+        let mut updated: u64 = 0;
+        let mut deleted: u64 = 0;
         let mut old_cache = (snapshot)(&previous_conn.0)
             .into_iter()
             .map(|row| ((get_key)(&row), row))
@@ -47,6 +52,7 @@ where
                         let (_, old) = old_cache.next().unwrap();
                         if delete {
                             delete_writer.write(RowDeleted(old));
+                            deleted += 1;
                         }
                     }
                     std::cmp::Ordering::Equal => {
@@ -54,12 +60,14 @@ where
                         let (_, new) = new_cache.next().unwrap();
                         if old != new && update {
                             update_writer.write(RowUpdated { old, new });
+                            updated += 1;
                         }
                     }
                     std::cmp::Ordering::Greater => {
                         let (_, new) = new_cache.next().unwrap();
                         if insert {
                             insert_writer.write(RowInserted(new));
+                            inserted += 1;
                         }
                     }
                 },
@@ -67,16 +75,23 @@ where
                     let (_, old) = old_cache.next().unwrap();
                     if delete {
                         delete_writer.write(RowDeleted(old));
+                        deleted += 1;
                     }
                 }
                 (None, Some(_)) => {
                     let (_, new) = new_cache.next().unwrap();
                     if insert {
                         insert_writer.write(RowInserted(new));
+                        inserted += 1;
                     }
                 }
                 (None, None) => break,
             }
+        }
+
+        // Only a non-empty reconcile is worth a line; an unchanged table stays silent.
+        if inserted + updated + deleted > 0 {
+            bevy::log::info!(table = label, inserted, updated, deleted, "resync diff");
         }
     }
 }
