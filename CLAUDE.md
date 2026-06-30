@@ -46,6 +46,7 @@ before writing any code** — they encode conventions you are expected to follow
 - Before working on **SpacetimeDB** (the Module, reducers, the Bridge, bindings, or the client
   connection): read `docs/spacetimedb.md`
 - Before creating or modifying **CI/CD** workflows: read `docs/cicd.md`
+- Before adding or changing **observability/logging** in the Bridge: read `docs/observability.md`
 
 ## Skills
 

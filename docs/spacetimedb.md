@@ -133,5 +133,7 @@ the local server:
   query's rows as they change (useful for watching state during play).
 
 Client (Bevy) log verbosity is controlled by `RUST_LOG` (set in `.env`); the default
-`warn,game=trace` shows our `game` logs and silences Bevy's own INFO chatter. Bevy's `LogPlugin`
-reads `RUST_LOG` and lets it override its built-in filter.
+`warn,game=trace,stdb_bevy=info` shows our `game` logs and the Bridge's connection milestones while
+silencing Bevy's own INFO chatter. Bevy's `LogPlugin` reads `RUST_LOG` and lets it override its
+built-in filter. For the Bridge's logging conventions and how to drill into a flapping client, see
+`docs/observability.md`.

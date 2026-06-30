@@ -73,6 +73,7 @@ fn app(players: Vec<Player>) -> App {
                 |c| c.db().player().iter().collect(),
                 |p| p.id,
                 RowMessagesMask::ALL,
+                "player",
             ),
         ]),
     );

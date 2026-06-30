@@ -24,19 +24,19 @@ impl<R: StdbRow> RowSink<R> {
     pub fn insert(&self, row: R) {
         self.sender
             .send(RowEvent::Insert(row))
-            .unwrap_or_else(|err| bevy::log::error!("RowSink insert sender error {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "row sink insert send failed"));
     }
 
     pub fn update(&self, old: R, new: R) {
         self.sender
             .send(RowEvent::Update { old, new })
-            .unwrap_or_else(|err| bevy::log::error!("RowSink update sender error {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "row sink update send failed"));
     }
 
     pub fn delete(&self, row: R) {
         self.sender
             .send(RowEvent::Delete(row))
-            .unwrap_or_else(|err| bevy::log::error!("RowSink delete sender error {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "row sink delete send failed"));
     }
 }
 
@@ -65,17 +65,24 @@ impl<R: StdbRow> Default for RowChannel<R> {
     }
 }
 
-pub(crate) fn drain_row_sink<R: StdbRow>(row_channel: Res<RowChannel<R>>, mut commands: Commands) {
-    while let Ok(stdb_event) = row_channel.receiver.try_recv() {
-        match stdb_event {
-            RowEvent::Insert(row) => {
-                commands.write_message(RowInserted(row));
-            }
-            RowEvent::Update { old, new } => {
-                commands.write_message(RowUpdated::new(old, new));
-            }
-            RowEvent::Delete(row) => {
-                commands.write_message(RowDeleted(row));
+pub(crate) fn drain_row_sink<R: StdbRow>(
+    label: &'static str,
+) -> impl FnMut(Res<RowChannel<R>>, Commands) {
+    move |row_channel: Res<RowChannel<R>>, mut commands: Commands| {
+        while let Ok(stdb_event) = row_channel.receiver.try_recv() {
+            match stdb_event {
+                RowEvent::Insert(row) => {
+                    bevy::log::trace!(table = label, "row inserted");
+                    commands.write_message(RowInserted(row));
+                }
+                RowEvent::Update { old, new } => {
+                    bevy::log::trace!(table = label, "row updated");
+                    commands.write_message(RowUpdated::new(old, new));
+                }
+                RowEvent::Delete(row) => {
+                    bevy::log::trace!(table = label, "row deleted");
+                    commands.write_message(RowDeleted(row));
+                }
             }
         }
     }
@@ -106,7 +113,7 @@ mod tests {
         app.add_message::<RowInserted<Foo>>();
         app.add_message::<RowUpdated<Foo>>();
         app.add_message::<RowDeleted<Foo>>();
-        app.add_systems(Update, drain_row_sink::<Foo>);
+        app.add_systems(Update, drain_row_sink::<Foo>("foo"));
         app
     }
 

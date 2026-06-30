@@ -28,23 +28,21 @@ impl SubscriptionSink {
     pub fn applied(&self) {
         self.sender
             .send(SubscriptionEvent::Applied(self.entity))
-            .unwrap_or_else(|err| {
-                bevy::log::error!("SubscriptionSink applied sender error {}", err)
-            });
+            .unwrap_or_else(|err| bevy::log::error!(%err, "subscription sink applied send failed"));
     }
 
     pub fn error(&self, error: StdbBevyError) {
         self.sender
             .send(SubscriptionEvent::Error(self.entity, error))
-            .unwrap_or_else(|err| bevy::log::error!("SubscriptionSink error sender error {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "subscription sink error send failed"));
     }
 
     pub fn unsubscribe(&self) {
         self.sender
             .send(SubscriptionEvent::Unsubscribe(self.entity))
-            .unwrap_or_else(|err| {
-                bevy::log::error!("SubscriptionSink unsubscribe sender error {}", err)
-            });
+            .unwrap_or_else(
+                |err| bevy::log::error!(%err, "subscription sink unsubscribe send failed"),
+            );
     }
 }
 
@@ -82,6 +80,7 @@ pub(crate) fn drain_subscription_sink(
         match stdb_event {
             SubscriptionEvent::Applied(entity) => {
                 if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+                    bevy::log::trace!(?entity, "subscription applied");
                     commands
                         .insert(AppliedSubscription)
                         .trigger(SubscriptionApplied::from);
@@ -89,6 +88,7 @@ pub(crate) fn drain_subscription_sink(
             }
             SubscriptionEvent::Error(entity, error) => {
                 if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+                    bevy::log::warn!(?entity, error = %error, "subscription failed");
                     commands
                         .insert(FailedSubscription)
                         .trigger(|entity| SubscriptionFailed::new(entity, error));
@@ -96,6 +96,7 @@ pub(crate) fn drain_subscription_sink(
             }
             SubscriptionEvent::Unsubscribe(entity) => {
                 if let Ok(mut commands) = commands.get_spawned_entity(entity) {
+                    bevy::log::trace!(?entity, "subscription unsubscribed");
                     commands.trigger(SubscriptionUnsubscribed::new);
                 }
             }

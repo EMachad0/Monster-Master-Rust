@@ -132,7 +132,7 @@ mod tests {
         app.add_message::<RowInserted<Widget>>();
         app.add_message::<RowUpdated<Widget>>();
         app.add_message::<RowDeleted<Widget>>();
-        app.add_systems(Update, drain_row_sink::<Widget>);
+        app.add_systems(Update, drain_row_sink::<Widget>("widget"));
         app.init_resource::<Inserts>();
         app.init_resource::<Updates>();
         app.init_resource::<Deletes>();

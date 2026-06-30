@@ -56,7 +56,7 @@ where
 
     fn connect(&self, sink: crate::LifecycleSink<Self::Conn>) {
         sink.connecting()
-            .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
 
         let builder = DbConnectionBuilder::<C::Module>::new()
             .with_uri(self.uri.clone())
@@ -65,26 +65,32 @@ where
             .on_connect({
                 let stdb_token = self.token.clone();
                 move |_connection, identity, token| {
-                    bevy::log::info!("Connected to SpacetimeDb {}", identity);
+                    bevy::log::info!(%identity, "connected");
                     stdb_token.set(token);
                 }
             })
             .on_disconnect({
                 let sink = sink.clone();
                 move |_error_ctx, error| {
+                    // The drain logs the headline `unintended disconnect`; this is just the SDK's
+                    // cause, kept at trace as drill-in detail (a drop is expected, not an error).
                     if let Some(err) = error {
-                        bevy::log::error!("Disconnection Error {}", err);
+                        bevy::log::trace!(%err, "sdk reported disconnect cause");
                     }
-                    sink.disconnected()
-                        .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                    sink.disconnected().unwrap_or_else(
+                        |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                    );
                 }
             })
             .on_connect_error({
                 let sink = sink.clone();
                 move |_error_ctx, error| {
-                    bevy::log::error!("Connection Error {}", error);
+                    // The drain logs `connect failed` (warn) once from the ConnectionError event;
+                    // logging here too would double up at two levels.
                     sink.connection_error(StdbBevyError::from(error))
-                        .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                        .unwrap_or_else(
+                            |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                        );
                 }
             });
 
@@ -92,12 +98,12 @@ where
         match builder.build() {
             Ok(conn) => {
                 sink.connected(conn)
-                    .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                    .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
             }
+            // The drain logs the failure once as `connect failed` (warn) off this event.
             Err(err) => {
-                bevy::log::error!("SpacetimeDB build failed: {err}");
                 sink.connection_error(StdbBevyError::from(err))
-                    .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                    .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
             }
         }
 
@@ -105,13 +111,16 @@ where
         wasm_bindgen_futures::spawn_local(async move {
             match builder.build().await {
                 Ok(conn) => {
-                    sink.connected(conn)
-                        .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                    sink.connected(conn).unwrap_or_else(
+                        |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                    );
                 }
+                // The drain logs the failure once as `connect failed` (warn) off this event.
                 Err(err) => {
-                    bevy::log::error!("SpacetimeDB build failed: {err}");
                     sink.connection_error(StdbBevyError::from(err))
-                        .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+                        .unwrap_or_else(
+                            |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                        );
                 }
             }
         });
@@ -123,13 +132,13 @@ where
         sink: crate::LifecycleSink<Self::Conn>,
     ) {
         conn.disconnect()
-            .unwrap_or_else(|err| bevy::log::error!("Disconnection Error {}", err));
+            .unwrap_or_else(|err| bevy::log::warn!(%err, "disconnect call failed"));
         sink.disconnected()
-            .unwrap_or_else(|err| bevy::log::error!("ChannelError: {}", err));
+            .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
     }
 
     fn tick(&self, conn: &crate::StdbConnection<Self::Conn>) {
-        (self.tick)(conn).unwrap_or_else(|err| bevy::log::error!("TickError: {}", err));
+        (self.tick)(conn).unwrap_or_else(|err| bevy::log::error!(%err, "frame_tick failed"));
     }
 }
 

@@ -8,6 +8,7 @@ use crate::{
     StdbBevyError, StdbBevyErrorEvent, StdbPreviousConnection,
     connection::{
         stdb_connection::{StdbConn, StdbConnection},
+        stdb_intent::StdbIntent,
         stdb_status::StdbStatus,
     },
     lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected},
@@ -80,28 +81,43 @@ impl<C: StdbConn> Default for LifecycleChannel<C> {
 
 pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
     lifecycle_channel: Res<LifecycleChannel<C>>,
+    intent: Res<StdbIntent>,
     mut commands: Commands,
 ) {
     while let Ok(stdb_event) = lifecycle_channel.receiver.try_recv() {
         match stdb_event {
+            // The SDK adapter logs `connected` with the identity (the only place it has it).
             LifecycleEvent::Connected(c) => {
                 commands.insert_resource(StdbConnection(c));
                 commands.insert_resource(StdbStatus::Connected);
                 commands.trigger(StdbConnected);
             }
             LifecycleEvent::Disconnected => {
-                commands.queue(|world: &mut World| {
+                // Intent tells a dropped link (still Connected) from a deliberate one; `had_connection`
+                // is only known inside the queued world access, so the log lives there too.
+                let intent = *intent;
+                commands.queue(move |world: &mut World| {
                     let conn = world.remove_resource::<StdbConnection<C>>();
+                    let had_connection = conn.is_some();
                     if let Some(StdbConnection(conn)) = conn
                         && !world.contains_resource::<StdbPreviousConnection<C>>()
                     {
                         world.insert_resource(StdbPreviousConnection(conn));
+                    }
+                    match intent {
+                        StdbIntent::Connected => {
+                            bevy::log::warn!(had_connection, "unintended disconnect")
+                        }
+                        StdbIntent::Disconnected => bevy::log::trace!("disconnect"),
                     }
                 });
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbDisconnected);
             }
             LifecycleEvent::ConnectionError(e) => {
+                // Expected while the server is down (the retry loop drives the next attempt), so warn
+                // rather than error. `StdbBevyError` is transparent over the SDK cause.
+                bevy::log::warn!(error = %e, "connect failed");
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbBevyErrorEvent::new(e));
             }

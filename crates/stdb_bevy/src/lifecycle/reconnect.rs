@@ -43,6 +43,10 @@ impl Default for ReconnectPolicy {
 pub struct ReconnectState {
     retry_count: u32,
     elapsed: Duration,
+    // Latches once max retries are reached so `GiveUp` surfaces as a one-shot transition, not a
+    // per-frame state: `should_tick_reconnectstate` keeps firing after give-up (intent stays
+    // Connected), so without this the give-up log would repeat every frame.
+    gave_up: bool,
 }
 
 impl ReconnectState {
@@ -50,6 +54,7 @@ impl ReconnectState {
         Self {
             retry_count: 0,
             elapsed: Duration::ZERO,
+            gave_up: false,
         }
     }
 
@@ -62,6 +67,10 @@ impl ReconnectState {
         if let Some(max_retries) = policy.max_retries
             && self.retry_count >= max_retries
         {
+            if self.gave_up {
+                return ReconnectAction::Wait;
+            }
+            self.gave_up = true;
             return ReconnectAction::GiveUp;
         }
 
@@ -80,6 +89,7 @@ impl ReconnectState {
     pub fn reset(&mut self) {
         self.retry_count = 0;
         self.elapsed = Duration::ZERO;
+        self.gave_up = false;
     }
 }
 
@@ -113,10 +123,23 @@ pub fn tick_reconnectstate<Cd: StdbConnectionDriver>(
     match state.tick(policy.deref(), time.delta(), sample) {
         ReconnectAction::Wait => {}
         ReconnectAction::Reconnect => {
+            // `retry_count` was just bumped to the attempt now firing; the backoff that elapsed is
+            // the one for the prior count.
+            let delay = policy.backoff.delay(state.retry_count.saturating_sub(1));
+            bevy::log::trace!(
+                retry_count = state.retry_count,
+                delay_ms = delay.as_millis() as u64,
+                "connecting",
+            );
             let sink = lifecycle_channel.sink();
             connection_driver.connect(sink);
         }
-        ReconnectAction::GiveUp => {}
+        ReconnectAction::GiveUp => {
+            bevy::log::warn!(
+                retry_count = state.retry_count,
+                "giving up reconnect: max retries reached",
+            );
+        }
     }
 }
 
