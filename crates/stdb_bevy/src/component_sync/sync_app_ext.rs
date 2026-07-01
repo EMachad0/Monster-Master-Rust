@@ -12,9 +12,17 @@ use crate::{
     },
 };
 
+/// App extensions for mirroring server rows into components.
 pub trait SyncAppExt {
+    /// Keeps `S` in step with its row: installs the by-key entity index, the observers that maintain
+    /// it, and the per-frame update system. Lifecycle stays the Game's: it spawns and despawns from
+    /// the raw row messages; the Bridge only updates the component in place.
     fn sync_component<S: StdbSync>(&mut self) -> &mut Self;
 
+    /// Derives `T` from a mirrored `S` whenever `S` changes, gated on `Changed<S>` and written
+    /// set-if-changed. `T` must already be present: the projection updates an existing target and warns
+    /// rather than inserting one, since the Game composes the entity. This is the second hop that
+    /// reaches a foreign component the orphan rule forbids building from a row directly.
     fn projection<S, T>(&mut self) -> &mut Self
     where
         S: StdbSync,
