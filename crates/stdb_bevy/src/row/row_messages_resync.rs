@@ -4,6 +4,13 @@ use crate::{
 };
 use bevy::prelude::*;
 
+/// Builds the reconnect diff: merge-joins the retained pre-outage rows against the fresh snapshot by
+/// `get_key`, emitting an insert for a row present only in the new set, a delete for one present only
+/// in the old, and an update for a matched pair whose bodies differ.
+///
+/// `get_key` is the sole identity the join pairs rows by, so it must be unique and stable per row:
+/// a survivor whose key differed across the outage would read as a delete plus a re-insert. It is
+/// unrelated to any key a mirror uses to locate entities.
 #[allow(clippy::type_complexity)]
 pub(crate) fn resync_row_messages_system<C, R, K>(
     snapshot: fn(&C) -> Vec<R>,

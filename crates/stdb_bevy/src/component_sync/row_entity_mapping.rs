@@ -7,6 +7,10 @@ use smallvec::SmallVec;
 
 use crate::StdbSync;
 
+/// Read-only lookup from a [`StdbSync::Key`] (or a row) to the entities currently mirroring it.
+///
+/// Spares the Game its own row-to-entity map: the Bridge already keeps this index to drive the mirror.
+/// Covers only tables the Game mirrors.
 #[derive(SystemParam)]
 pub struct RowEntities<'w, S>
 where
@@ -16,6 +20,7 @@ where
 }
 
 impl<'w, S: StdbSync> RowEntities<'w, S> {
+    /// Every entity carrying `key`; empty when none do.
     pub fn get(&self, key: &S::Key) -> &[Entity] {
         self.entity_map
             .get(key)
@@ -23,6 +28,8 @@ impl<'w, S: StdbSync> RowEntities<'w, S> {
             .unwrap_or_default()
     }
 
+    /// The sole entity for `key`, or a `QuerySingleError` when none or several carry it (the 1:1
+    /// join).
     pub fn single(&self, key: &S::Key) -> Result<Entity, QuerySingleError> {
         let v = self.get(key);
         match v.len() {
@@ -34,17 +41,21 @@ impl<'w, S: StdbSync> RowEntities<'w, S> {
         }
     }
 
+    /// Like [`get`](Self::get), deriving the key from `row`.
     pub fn get_by_row(&self, row: &S::Row) -> &[Entity] {
         let key = S::from(row).key();
         self.get(&key)
     }
 
+    /// Like [`single`](Self::single), deriving the key from `row`.
     pub fn single_by_row(&self, row: &S::Row) -> Result<Entity, QuerySingleError> {
         let key = S::from(row).key();
         self.single(&key)
     }
 }
 
+/// Index from a mirror key to the entities carrying that component, maintained by the add/remove
+/// observers below. The per-key `SmallVec` lets one row back several entities.
 #[derive(Resource, Deref, DerefMut)]
 pub(super) struct SyncEntityMap<R: StdbSync>(HashMap<R::Key, SmallVec<[Entity; 4]>>);
 
@@ -60,6 +71,8 @@ impl<R: StdbSync> Default for SyncEntityMap<R> {
     }
 }
 
+/// Files a newly added mirror component under its key. With the removal observer this is the only
+/// place the index is written; the update path never re-files, so the key must be immutable.
 pub(super) fn register_sync_entity_on_add_stdbsync<S: StdbSync>(
     observer: On<Add, S>,
     mut sync_entity_map: ResMut<SyncEntityMap<S>>,
@@ -72,6 +85,8 @@ pub(super) fn register_sync_entity_on_add_stdbsync<S: StdbSync>(
     };
 }
 
+/// Removes a despawned or dropped mirror component from its key bucket, so the index does not leak
+/// dead entities.
 pub(super) fn deregister_sync_entity_on_remove_stdbsync<S: StdbSync>(
     observer: On<Remove, S>,
     mut sync_entity_map: ResMut<SyncEntityMap<S>>,

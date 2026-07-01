@@ -4,15 +4,36 @@ use bevy::{ecs::component::Mutable, prelude::*};
 
 use crate::{RowUpdated, StdbRow, component_sync::row_entity_mapping::SyncEntityMap};
 
+/// A Game component kept in step with a server row.
+///
+/// `From<&Self::Row>` builds the component from a row and is the single conversion the Game's spawn
+/// and the Bridge's update both reuse. `key()` reports the row's identity within the ECS world so an
+/// incoming row can be matched to the entities holding it.
 pub trait StdbSync:
     Component<Mutability = Mutable> + PartialEq + for<'r> From<&'r Self::Row>
 {
+    /// The server row this component mirrors.
     type Row: StdbRow;
+
+    /// The [`key`](Self::key) type.
     type Key: Hash + Eq + Send + Sync;
 
+    /// The row's identity within the ECS world, used to match an incoming row to the entities
+    /// carrying it.
+    ///
+    /// Must be unique per row and immutable for the component's lifetime: the Bridge indexes an entity
+    /// by this value when the component is added or removed, never on an in-place update, so a key
+    /// whose value changed would strand the entity under its former value. It need not be the row's
+    /// primary key nor the key the reconnect diff classifies rows by; the two are independent.
     fn key(&self) -> Self::Key;
 }
 
+/// Applies each buffered row update to every entity mirroring that row.
+///
+/// The entities are found by the row's [`StdbSync::key`], and the value is written with `set_if_neq`,
+/// so an update that changes nothing leaves the component un-`Changed` and change-driven systems stay
+/// quiet. Writing in place rather than remove-then-re-add is also why the key must be immutable: the
+/// entity lookup is not refreshed here.
 pub(super) fn sync_component_internal<S: StdbSync>(
     mut updates: MessageReader<RowUpdated<S::Row>>,
     mut sync_components: Query<&mut S>,
