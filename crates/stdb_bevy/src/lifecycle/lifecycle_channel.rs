@@ -5,7 +5,7 @@ use bevy::ecs::{
 };
 
 use crate::{
-    StdbBevyError, StdbBevyErrorEvent, StdbPreviousConnection,
+    StdbBevyError, StdbBevyErrorEvent, StdbIdentity, StdbPreviousConnection,
     connection::{
         stdb_connection::{StdbConn, StdbConnection},
         stdb_intent::StdbIntent,
@@ -19,6 +19,7 @@ pub enum LifecycleEvent<C: StdbConn> {
     Disconnected,
     ConnectionError(StdbBevyError),
     Connecting,
+    Identified(spacetimedb_sdk::Identity),
 }
 
 pub struct LifecycleSink<C: StdbConn> {
@@ -32,6 +33,13 @@ impl<C: StdbConn> LifecycleSink<C> {
 
     pub fn disconnected(&self) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
         self.sender.send(LifecycleEvent::Disconnected)
+    }
+
+    pub fn identified(
+        &self,
+        identity: spacetimedb_sdk::Identity,
+    ) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
+        self.sender.send(LifecycleEvent::Identified(identity))
     }
 
     pub fn connection_error(
@@ -111,6 +119,7 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
                         StdbIntent::Disconnected => bevy::log::trace!("disconnect"),
                     }
                 });
+                commands.remove_resource::<StdbIdentity>();
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbDisconnected);
             }
@@ -124,6 +133,9 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
             LifecycleEvent::Connecting => {
                 commands.insert_resource(StdbStatus::Connecting);
             }
+            LifecycleEvent::Identified(identity) => {
+                commands.insert_resource(StdbIdentity(identity));
+            }
         }
     }
 }
@@ -132,8 +144,10 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 mod tests {
     use bevy::prelude::*;
 
+    use spacetimedb_sdk::Identity;
+
     use crate::test_support::{CannedDriver, FakeConn, FakeDriver, test_app};
-    use crate::{StdbPreviousConnection, Subscription};
+    use crate::{StdbIdentity, StdbPreviousConnection, Subscription};
 
     use super::*;
 
@@ -352,6 +366,103 @@ mod tests {
             Some(StdbStatus::Disconnected),
             "an StdbDisconnected observer must see StdbStatus already flipped to Disconnected, \
              not the stale Connected value — status must be set before the trigger",
+        );
+    }
+
+    #[test]
+    fn identified_signal_inserts_the_stdb_identity_resource() {
+        let mut app = test_app(FakeDriver::default());
+
+        let id = Identity::from_byte_array([7; 32]);
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.identified(id).unwrap();
+
+        app.update();
+
+        let identity = app
+            .world()
+            .get_resource::<StdbIdentity>()
+            .expect("the Identified signal must insert StdbIdentity");
+        assert_eq!(
+            **identity, id,
+            "StdbIdentity must carry the identity delivered by the Identified signal",
+        );
+    }
+
+    #[test]
+    fn disconnect_removes_the_stdb_identity_resource() {
+        let mut app = test_app(FakeDriver::default());
+
+        let id = Identity::from_byte_array([7; 32]);
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        sink.identified(id).unwrap();
+        app.update();
+        assert!(
+            app.world().get_resource::<StdbIdentity>().is_some(),
+            "precondition: the Identified signal installs StdbIdentity",
+        );
+
+        sink.disconnected().unwrap();
+        app.update();
+
+        assert!(
+            app.world().get_resource::<StdbIdentity>().is_none(),
+            "disconnect must clear StdbIdentity — identity is per-connection, not retained",
+        );
+    }
+
+    #[test]
+    fn stdb_identity_is_absent_before_the_identified_signal() {
+        let mut app = test_app(FakeDriver::default());
+
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+        sink.connected(FakeConn).unwrap();
+        app.update();
+
+        assert!(
+            app.world()
+                .get_resource::<StdbConnection<FakeConn>>()
+                .is_some(),
+            "precondition: Connected installs the connection",
+        );
+        assert!(
+            app.world().get_resource::<StdbIdentity>().is_none(),
+            "Connected fires at build time, before the server issues the identity — \
+             StdbIdentity must not exist until the Identified signal arrives",
+        );
+    }
+
+    #[test]
+    fn reconnect_reinstalls_the_stdb_identity_resource() {
+        let mut app = test_app(FakeDriver::default());
+
+        let id = Identity::from_byte_array([7; 32]);
+        let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
+
+        // Connect and identify, then drop.
+        sink.connected(FakeConn).unwrap();
+        sink.identified(id).unwrap();
+        app.update();
+        sink.disconnected().unwrap();
+        app.update();
+        assert!(
+            app.world().get_resource::<StdbIdentity>().is_none(),
+            "precondition: disconnect clears the identity",
+        );
+
+        // Reconnect and re-identify: token reuse yields the same identity.
+        sink.connected(FakeConn).unwrap();
+        sink.identified(id).unwrap();
+        app.update();
+
+        let identity = app
+            .world()
+            .get_resource::<StdbIdentity>()
+            .expect("a reconnect that re-identifies must reinstall StdbIdentity");
+        assert_eq!(
+            **identity, id,
+            "the reinstalled identity is the same across a same-session reconnect (token reuse)",
         );
     }
 }

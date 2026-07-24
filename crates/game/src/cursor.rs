@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use spacetimedb_sdk::{DbContext, Identity};
-use stdb_bevy::{RowDeleted, RowEntities, RowInserted, StdbConnection, StdbSync, Subscription};
+use stdb_bevy::{
+    RowDeleted, RowEntities, RowInserted, StdbConnection, StdbIdentity, StdbSync, Subscription,
+};
 use stdb_bindings::{DbConnection, set_cursor_position};
 
 use crate::player::{Own, OwnedBy, Player};
@@ -44,7 +46,7 @@ impl StdbSync for Cursor {
 pub fn spawn_cursor_on_insert(
     mut reader: MessageReader<RowInserted<stdb_bindings::Cursor>>,
     mut commands: Commands,
-    connection: Res<StdbConnection<DbConnection>>,
+    identity: Res<StdbIdentity>,
     player_entities: RowEntities<Player>,
     players: Query<&Player>,
 ) {
@@ -60,7 +62,7 @@ pub fn spawn_cursor_on_insert(
         });
         entity_commands.insert(OwnedBy(player_entity));
         entity_commands.insert(Cursor::from(message.row()));
-        if connection.identity() == player_identity {
+        if *identity == player_identity {
             entity_commands.insert(Own);
         }
     }

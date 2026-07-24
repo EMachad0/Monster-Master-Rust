@@ -63,8 +63,12 @@ where
             .with_database_name(self.database_name.clone())
             .with_token(self.token.get())
             .on_connect({
+                let sink = sink.clone();
                 let stdb_token = self.token.clone();
                 move |_connection, identity, token| {
+                    sink.identified(identity).unwrap_or_else(
+                        |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                    );
                     bevy::log::info!(%identity, "connected");
                     stdb_token.set(token);
                 }
