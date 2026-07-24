@@ -58,6 +58,37 @@ fn connect_in_flight_is_connecting() {
 }
 ```
 
+## Engine vs SDK adapter: what is testable at all
+
+Orthogonal to the unit/e2e split above, the Bridge is layered so that almost all of it can be
+tested with no server and no real socket:
+
+- **Engine** (everything outside `src/sdk_impl/`): the channels and their drain systems, the
+  lifecycle wiring, reconnect and backoff, the row mirror, and resync. It is generic over the
+  connection type (`StdbConn`, which asks only for `Send + Sync + 'static`) and over the driver
+  traits (`StdbConnectionDriver`, `StdbSubscriptionDriver`), so a test instantiates it with
+  `FakeConn` plus a fake driver. This layer is where behavior lives, and all of it is covered.
+- **SDK adapter** (`src/sdk_impl/`): `SdkConnectionDriver` and `SdkSubscriptionDriver`. Builds the
+  real `DbConnection` (native blocking vs wasm `spawn_local`), pumps `frame_tick` each frame, and
+  installs the real SDK callbacks (`on_disconnect`, `on_applied`, and via `RowForwarder` the
+  per-table `on_insert`/`on_delete`). Needs a live server, so it is verified by hand against
+  `just dev`, not in CI.
+
+The seam between them is the set of sinks (`LifecycleSink`, `RowForwarder`, `SubscriptionSink`,
+`ReducerOutcomeSink`). Production and tests push through the *same* sink, so a test drives the real
+drain systems and asserts on the real messages:
+
+```
+production:  frame_tick() -> SDK on_insert(|_, row| sink.insert(row.clone())) -> channel -> drain -> RowInserted<T>
+test:                                     sink.insert(row)                    -> channel -> drain -> RowInserted<T>
+```
+
+The only thing left uncovered is the one-line callback body itself.
+
+**Consequence for new code:** keep behavior in the engine layer and let the adapter stay a thin
+translation with nothing worth asserting. Wanting to write a test against something in `sdk_impl`
+is the signal that the logic belongs one layer down.
+
 ## Reusable fakes behind a `test-support` feature
 
 Shared test doubles (`FakeConn`, `FakeConnectionDriver`, `DeferredDriver`, `FakeTable`, `test_app`)
