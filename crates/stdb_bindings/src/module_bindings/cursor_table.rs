@@ -18,6 +18,18 @@ pub struct CursorTableHandle<'ctx> {
     ctx: std::marker::PhantomData<&'ctx super::RemoteTables>,
 }
 
+/// Lifetime-aware accessor marker for the table `cursor`.
+pub struct CursorTableAccessor;
+
+impl __sdk::TableAccessor<super::RemoteTables> for CursorTableAccessor {
+    type Row = Cursor;
+    type Handle<'db> = CursorTableHandle<'db>;
+
+    fn get<'db>(db: &'db super::RemoteTables) -> Self::Handle<'db> {
+        db.cursor()
+    }
+}
+
 #[allow(non_camel_case_types)]
 /// Extension trait for access to the table `cursor`.
 ///
@@ -39,6 +51,18 @@ impl CursorTableAccess for super::RemoteTables {
 
 pub struct CursorInsertCallbackId(__sdk::CallbackId);
 pub struct CursorDeleteCallbackId(__sdk::CallbackId);
+
+impl<'ctx> __sdk::TableLike for CursorTableHandle<'ctx> {
+    type Row = Cursor;
+    type EventContext = super::EventContext;
+
+    fn count(&self) -> u64 {
+        self.imp.count()
+    }
+    fn iter(&self) -> impl Iterator<Item = Cursor> + '_ {
+        self.imp.iter()
+    }
+}
 
 impl<'ctx> __sdk::Table for CursorTableHandle<'ctx> {
     type Row = Cursor;
@@ -78,9 +102,54 @@ impl<'ctx> __sdk::Table for CursorTableHandle<'ctx> {
     }
 }
 
+impl<'ctx> __sdk::WithInsert for CursorTableHandle<'ctx> {
+    type InsertCallbackId = CursorInsertCallbackId;
+
+    fn on_insert(
+        &self,
+        callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
+    ) -> CursorInsertCallbackId {
+        CursorInsertCallbackId(self.imp.on_insert(Box::new(callback)))
+    }
+
+    fn remove_on_insert(&self, callback: CursorInsertCallbackId) {
+        self.imp.remove_on_insert(callback.0)
+    }
+}
+
+impl<'ctx> __sdk::WithDelete for CursorTableHandle<'ctx> {
+    type DeleteCallbackId = CursorDeleteCallbackId;
+
+    fn on_delete(
+        &self,
+        callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
+    ) -> CursorDeleteCallbackId {
+        CursorDeleteCallbackId(self.imp.on_delete(Box::new(callback)))
+    }
+
+    fn remove_on_delete(&self, callback: CursorDeleteCallbackId) {
+        self.imp.remove_on_delete(callback.0)
+    }
+}
+
 pub struct CursorUpdateCallbackId(__sdk::CallbackId);
 
 impl<'ctx> __sdk::TableWithPrimaryKey for CursorTableHandle<'ctx> {
+    type UpdateCallbackId = CursorUpdateCallbackId;
+
+    fn on_update(
+        &self,
+        callback: impl FnMut(&Self::EventContext, &Self::Row, &Self::Row) + Send + 'static,
+    ) -> CursorUpdateCallbackId {
+        CursorUpdateCallbackId(self.imp.on_update(Box::new(callback)))
+    }
+
+    fn remove_on_update(&self, callback: CursorUpdateCallbackId) {
+        self.imp.remove_on_update(callback.0)
+    }
+}
+
+impl<'ctx> __sdk::WithUpdate for CursorTableHandle<'ctx> {
     type UpdateCallbackId = CursorUpdateCallbackId;
 
     fn on_update(

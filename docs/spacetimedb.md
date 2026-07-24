@@ -13,15 +13,15 @@ See `../CONTEXT.md` for the canonical meaning of Module / Reducer / Bindings / B
 
 ## Critical rules
 
-### 1. Keep all SpacetimeDB versions aligned at 2.6.x
+### 1. Keep all SpacetimeDB versions aligned at the same major/minor
 
 The server (`docker-compose.yml` image tag), the CLI (`.mise/config.toml`), `spacetimedb`
 (Module crate), and `spacetimedb-sdk` (client) must share the same major/minor. A mismatch is a
-websocket-protocol mismatch. SpacetimeDB 2.6 also requires **rustc ≥ 1.93** — that is why
+websocket-protocol mismatch. SpacetimeDB 2.7 also requires **rustc ≥ 1.93** — that is why
 `rust-toolchain.toml` pins the toolchain. Versions are centralized in the root
 `Cargo.toml` `[workspace.dependencies]`.
 
-### 2. Module API (2.6) gotchas
+### 2. Module API (2.7) gotchas
 
 - Tables use **`accessor = <ident>`** (a Rust identifier), not `name = <ident>`. The accessor is
   the method you call: `#[table(accessor = player, public)]` → `ctx.db.player()`. Add `public` so

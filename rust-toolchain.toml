@@ -1,4 +1,5 @@
-# Pinned toolchain for the whole workspace. SpacetimeDB 2.6 requires rustc >= 1.93.
+# Pinned toolchain for the whole workspace. Must be >= the MSRV SpacetimeDB's crates declare
+# (their `rust-version`).
 # rustup auto-installs this toolchain, the listed components, and the wasm target on first use.
 [toolchain]
 channel = "1.96.0"
