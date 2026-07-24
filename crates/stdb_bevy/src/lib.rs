@@ -18,6 +18,7 @@ use crate::lifecycle::lifecycle_channel::{LifecycleChannel, drain_lifecycle_sink
 use crate::lifecycle::reconnect::{
     reset_reconnectstate_on_stdbdisconnected, should_tick_reconnectstate, tick_reconnectstate,
 };
+use crate::reducer::reducer_channel::{ReducerOutcomeChannel, drain_reducer_outcomes};
 use crate::row::row_messages_resync::drop_stdbpreviousconnection_after_resync;
 use crate::subscription::subscription_channel::{SubscriptionChannel, drain_subscription_sink};
 use crate::subscription::subscription_components::{
@@ -36,6 +37,8 @@ pub use crate::error::{StdbBevyError, StdbBevyErrorEvent};
 pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
 pub use crate::lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected};
 pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
+pub use crate::reducer::reducer_channel::ReducerOutcomeSink;
+pub use crate::reducer::reducer_events::{ReducerCommitted, ReducerFailed};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
 pub use crate::row::row_messages::{
@@ -63,6 +66,7 @@ mod component_sync;
 mod connection;
 mod error;
 mod lifecycle;
+mod reducer;
 mod row;
 mod sdk_impl;
 mod subscription;
@@ -211,10 +215,21 @@ impl<Cd: StdbConnectionDriver, Sd> StdbPlugin<Cd, Sd> {
         }
     }
 
+    fn build_reducer_app(&self, app: &mut bevy::app::App) {
+        let channel = ReducerOutcomeChannel::new();
+        app.insert_resource(channel.sink());
+        app.insert_resource(channel);
+        app.add_systems(
+            bevy::app::Update,
+            drain_reducer_outcomes.in_set(StdbSystemSet::Main),
+        );
+    }
+
     pub(crate) fn build_connection(&self, app: &mut bevy::app::App) {
         self.build_lifecyle_app(app);
         self.build_reconnect_app(app);
         self.build_tables_app(app);
+        self.build_reducer_app(app);
     }
 }
 
