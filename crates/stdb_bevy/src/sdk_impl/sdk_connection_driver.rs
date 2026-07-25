@@ -145,18 +145,3 @@ where
         (self.tick)(conn).unwrap_or_else(|err| bevy::log::error!(%err, "frame_tick failed"));
     }
 }
-
-impl<C, M> Clone for SdkConnectionDriver<M, C>
-where
-    M: SdkSpacetimeModule<DbConnection = C>,
-    C: SdkDbConnection<Module = M>,
-{
-    fn clone(&self) -> Self {
-        Self {
-            uri: self.uri.clone(),
-            database_name: self.database_name.clone(),
-            tick: self.tick,
-            token: self.token.clone(),
-        }
-    }
-}

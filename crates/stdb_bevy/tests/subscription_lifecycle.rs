@@ -2,15 +2,15 @@
 //!
 //! These prove a real Game can build a subscription-enabled plugin, declare a `Subscription` by
 //! spawning it, and observe it apply — and that the `is_subscriptions_settled` fence tracks that
-//! state — using only public items (`StdbPlugin::new`, the `FakeDriver` fake,
-//! `Subscription`, `AppliedSubscription`, `SubscriptionApplied`, `is_subscriptions_settled`), with
-//! no access to crate internals.
+//! state — using only public items (`StdbPlugin::new`, the `Drivers` builder, the `FakeDriver`
+//! fake, `Subscription`, `AppliedSubscription`, `SubscriptionApplied`, `is_subscriptions_settled`),
+//! with no access to crate internals.
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use stdb_bevy::test_support::FakeDriver;
 use stdb_bevy::{
-    AppliedSubscription, StdbConnect, StdbPlugin, Subscription, SubscriptionApplied,
+    AppliedSubscription, Drivers, StdbConnect, StdbPlugin, Subscription, SubscriptionApplied,
     is_subscriptions_settled,
 };
 
@@ -18,10 +18,10 @@ use stdb_bevy::{
 /// the `Time` the reconnect engine needs.
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins(StdbPlugin::new(
+    app.add_plugins(StdbPlugin::new(Drivers::new(
         FakeDriver::default(),
         FakeDriver::default(),
-    ));
+    )));
     app.insert_resource(Time::<()>::default());
     app
 }
