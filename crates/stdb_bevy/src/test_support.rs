@@ -214,6 +214,57 @@ impl<R: 'static + Clone> SdkTableWithPrimaryKey for FakeTable<R> {
     fn remove_on_update(&self, _id: Self::UpdateCallbackId) {}
 }
 
+// The granular capability traits the `RowForwarder` binds to, alongside the `Table` /
+// `TableWithPrimaryKey` impls above: the two families are independent (nothing blanket-implements
+// one from the other), and generated table handles carry both, so a fake standing in for one has to
+// as well. The paths are fully qualified and deliberately not imported: `FakeTable` presents
+// `count`/`iter` under two traits at once, and bringing both into scope makes every unqualified call
+// in this module ambiguous.
+impl<R: 'static + Clone> spacetimedb_sdk::table::TableLike for FakeTable<R> {
+    type Row = R;
+    type EventContext = ();
+
+    fn count(&self) -> u64 {
+        self.rows.len() as u64
+    }
+    fn iter(&self) -> impl Iterator<Item = R> + '_ {
+        self.rows.iter().cloned()
+    }
+}
+
+impl<R: 'static + Clone> spacetimedb_sdk::table::WithInsert for FakeTable<R> {
+    type InsertCallbackId = ();
+    fn on_insert(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {
+        for r in &self.inserts {
+            cb(&(), r);
+        }
+    }
+    fn remove_on_insert(&self, _id: Self::InsertCallbackId) {}
+}
+
+impl<R: 'static + Clone> spacetimedb_sdk::table::WithDelete for FakeTable<R> {
+    type DeleteCallbackId = ();
+    fn on_delete(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::DeleteCallbackId {
+        for r in &self.deletes {
+            cb(&(), r);
+        }
+    }
+    fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
+}
+
+impl<R: 'static + Clone> spacetimedb_sdk::table::WithUpdate for FakeTable<R> {
+    type UpdateCallbackId = ();
+    fn on_update(
+        &self,
+        mut cb: impl FnMut(&(), &R, &R) + Send + 'static,
+    ) -> Self::UpdateCallbackId {
+        for (old, new) in &self.updates {
+            cb(&(), old, new);
+        }
+    }
+    fn remove_on_update(&self, _id: Self::UpdateCallbackId) {}
+}
+
 /// A driver that connects synchronously, handing back a caller-supplied connection value. Generic
 /// over the connection type `C`, so a test can drive the bridge with a `FakeDbContext<V>` whose
 /// DbView exposes table accessors — the shape the `stdb_table!` macro's `conn.db().<table>()` body
