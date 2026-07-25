@@ -104,15 +104,15 @@ mod tests {
 
     use crate::lifecycle::lifecycle_channel::LifecycleChannel;
     use crate::test_support::{FakeConn, FakeDriver};
-    use crate::{StdbConnect, StdbDisconnected, StdbPlugin, SubscriptionId};
+    use crate::{Drivers, StdbConnect, StdbDisconnected, StdbPlugin, SubscriptionId};
 
     /// A test `App` with the subscription layer on. Connection-only tests keep using `test_app`.
     fn app_with_subscriptions() -> App {
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::new(
+        app.add_plugins(StdbPlugin::new(Drivers::new(
             FakeDriver::default(),
             FakeDriver::default(),
-        ));
+        )));
         app.insert_resource(Time::<()>::default());
         app
     }
@@ -318,7 +318,10 @@ mod tests {
         let sub_driver = FakeDriver::default();
         let probe = sub_driver.clone(); // shares the unsubscribe counter with the sub driver
         let mut app = App::new();
-        app.add_plugins(StdbPlugin::new(FakeDriver::default(), sub_driver));
+        app.add_plugins(StdbPlugin::new(Drivers::new(
+            FakeDriver::default(),
+            sub_driver,
+        )));
         app.insert_resource(Time::<()>::default());
         (app, probe)
     }

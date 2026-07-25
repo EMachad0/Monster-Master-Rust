@@ -1,4 +1,5 @@
 pub mod bsatn_key;
+pub mod sdk_builder;
 pub mod sdk_connection_driver;
 pub mod sdk_subscription_driver;
 

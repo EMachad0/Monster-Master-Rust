@@ -99,17 +99,3 @@ where
         Self::new()
     }
 }
-
-impl<C, M> Clone for SdkSubscriptionDriver<M, C>
-where
-    M: SdkSpacetimeModule<DbConnection = C>,
-    C: SdkDbConnection<Module = M>,
-    M::SubscriptionHandle: Send + Sync,
-{
-    fn clone(&self) -> Self {
-        Self {
-            id_mint: 0,
-            subscription_handles: self.subscription_handles.clone(),
-        }
-    }
-}

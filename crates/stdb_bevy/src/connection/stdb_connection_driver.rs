@@ -6,7 +6,7 @@ use crate::{
     lifecycle::lifecycle_channel::{LifecycleChannel, LifecycleSink},
 };
 
-pub trait StdbConnectionDriver: Clone + Resource {
+pub trait StdbConnectionDriver: Resource {
     type Conn: StdbConn;
 
     fn connect(&self, sink: LifecycleSink<Self::Conn>);

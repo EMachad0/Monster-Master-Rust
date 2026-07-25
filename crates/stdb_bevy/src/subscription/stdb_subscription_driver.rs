@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::resource::Resource;
 
@@ -20,7 +22,7 @@ impl From<u64> for SubscriptionId {
     }
 }
 
-pub trait StdbSubscriptionDriver: Clone + Resource + Component<Mutability = Mutable> {
+pub trait StdbSubscriptionDriver: Resource + Component<Mutability = Mutable> {
     type Conn: StdbConn;
 
     fn subscribe(
@@ -35,4 +37,40 @@ pub trait StdbSubscriptionDriver: Clone + Resource + Component<Mutability = Muta
     fn clear(&mut self);
 }
 
-pub struct NoSubscriptions;
+/// The subscription driver for a connection-only setup: it satisfies the driver slot but never
+/// issues a subscription, so the plugin keeps a single uniform shape instead of a separate
+/// subscription-free code path. A connection-only app spawns no `Subscription` entities, so
+/// `subscribe` is never actually reached.
+#[derive(Resource)]
+pub struct NoSubscriptions<C: StdbConn> {
+    _conn: PhantomData<C>,
+}
+
+impl<C: StdbConn> Default for NoSubscriptions<C> {
+    fn default() -> Self {
+        Self { _conn: PhantomData }
+    }
+}
+
+impl<C: StdbConn> Clone for NoSubscriptions<C> {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<C: StdbConn> StdbSubscriptionDriver for NoSubscriptions<C> {
+    type Conn = C;
+
+    fn subscribe(
+        &mut self,
+        _conn: &StdbConnection<Self::Conn>,
+        _sink: SubscriptionSink,
+        _subscription: &Subscription,
+    ) -> SubscriptionId {
+        SubscriptionId::new(0)
+    }
+
+    fn unsubscribe(&mut self, _sink: SubscriptionSink, _subscription_id: &SubscriptionId) {}
+
+    fn clear(&mut self) {}
+}
