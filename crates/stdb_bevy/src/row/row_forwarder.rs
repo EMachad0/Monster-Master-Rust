@@ -1,4 +1,4 @@
-use spacetimedb_sdk::{Table as SdkTable, TableWithPrimaryKey as SdkTableWithPrimaryKey};
+use spacetimedb_sdk::table::{WithDelete, WithInsert, WithUpdate};
 
 use crate::{
     RowMessagesMask,
@@ -25,7 +25,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     pub fn forward<T>(mut self, table: &T) -> Self
     where
-        T: SdkTableWithPrimaryKey<Row = R>,
+        T: WithInsert<Row = R> + WithDelete<Row = R> + WithUpdate<Row = R>,
     {
         let RowMessagesMask {
             insert,
@@ -46,7 +46,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     pub fn forward_keyless<T>(mut self, table: &T) -> Self
     where
-        T: SdkTable<Row = R>,
+        T: WithInsert<Row = R> + WithDelete<Row = R>,
     {
         let RowMessagesMask { insert, delete, .. } = self.filter;
         if insert {
@@ -60,7 +60,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     fn inserts<T>(self, table: &T) -> Self
     where
-        T: SdkTable<Row = R>,
+        T: WithInsert<Row = R>,
     {
         let sink = self.sink.clone();
         let _insert_handle = table.on_insert(move |_ctx, row| sink.insert(row.clone()));
@@ -69,7 +69,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     fn deletes<T>(self, table: &T) -> Self
     where
-        T: SdkTable<Row = R>,
+        T: WithDelete<Row = R>,
     {
         let sink = self.sink.clone();
         let _delete_handle = table.on_delete(move |_ctx, row| sink.delete(row.clone()));
@@ -78,7 +78,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     fn updates<T>(self, table: &T) -> Self
     where
-        T: SdkTableWithPrimaryKey<Row = R>,
+        T: WithUpdate<Row = R>,
     {
         let sink = self.sink.clone();
         let _delete_handle =

@@ -29,10 +29,13 @@ fn monster(id: u32, name: &str) -> Monster {
     }
 }
 
-/// A keyless table double: impls only `Table`, never `TableWithPrimaryKey` — a real no-PK handle is
-/// `Table`-only, so this is the faithful stand-in. It also makes `forward_keyless` load-bearing:
-/// `forward` (PK-bounded, since it may wire `on_update`) would not compile against this type. Only
-/// `iter()` carries meaning here; the diff reads the cache, and the live forward path is not driven.
+/// A keyless table double, carrying exactly the capabilities a generated no-PK handle does: insert
+/// and delete, never update. That is what makes `forward_keyless` load-bearing here, since `forward`
+/// additionally demands update capability and so would not compile against this type. The trait
+/// paths are fully qualified rather than imported, because a handle presents `iter()` under both
+/// `Table` and `TableLike`, and having both in scope would make this file's own `iter()` calls
+/// ambiguous. Only `iter()` carries meaning: the diff reads the cache, and the callbacks are never
+/// driven.
 struct KeylessTable<R> {
     rows: Vec<R>,
 }
@@ -51,6 +54,30 @@ impl<R: 'static + Clone> Table for KeylessTable<R> {
     }
     fn on_insert(&self, _cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {}
     fn remove_on_insert(&self, _id: Self::InsertCallbackId) {}
+    fn on_delete(&self, _cb: impl FnMut(&(), &R) + Send + 'static) -> Self::DeleteCallbackId {}
+    fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
+}
+
+impl<R: 'static + Clone> stdb_bevy::__sdk::table::TableLike for KeylessTable<R> {
+    type Row = R;
+    type EventContext = ();
+
+    fn count(&self) -> u64 {
+        self.rows.len() as u64
+    }
+    fn iter(&self) -> impl Iterator<Item = R> + '_ {
+        self.rows.iter().cloned()
+    }
+}
+
+impl<R: 'static + Clone> stdb_bevy::__sdk::table::WithInsert for KeylessTable<R> {
+    type InsertCallbackId = ();
+    fn on_insert(&self, _cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {}
+    fn remove_on_insert(&self, _id: Self::InsertCallbackId) {}
+}
+
+impl<R: 'static + Clone> stdb_bevy::__sdk::table::WithDelete for KeylessTable<R> {
+    type DeleteCallbackId = ();
     fn on_delete(&self, _cb: impl FnMut(&(), &R) + Send + 'static) -> Self::DeleteCallbackId {}
     fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
 }
