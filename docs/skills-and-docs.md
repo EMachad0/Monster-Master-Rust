@@ -6,9 +6,10 @@ Consult this doc whenever you are:
 - Deciding whether a piece of knowledge belongs in a skill or a doc
 - Onboarding to the project's knowledge architecture
 
-## Two mechanisms
+## Kinds of knowledge
 
-This project has two ways to deliver knowledge to agents:
+This project keeps agent-facing knowledge in four places. Two are mechanisms (docs, skills), two are
+artifacts with a single owner each (the glossary, the decision records).
 
 ### Docs (this directory — `docs/`)
 
@@ -29,11 +30,39 @@ they run commands, ask questions, generate artifacts.
 - **Location:** `.agents/skills/<skill-name>/SKILL.md`
 - **Loaded when:** user invokes `/skill-name` or the agent matches the description
 - **Content:** instructions for an interactive workflow, not static reference
-- **Examples:** `/grill-me` and `/grill-with-docs` (interview the user about a plan),
-  `/to-prd` (generates a PRD), `/to-issues` (splits work into issues)
+- **Examples:** `/grill` (interviews the user about a plan and updates the glossary and ADRs
+  inline), `/to-prd` (generates a PRD), `/to-issues` (splits work into issues)
 
 Skills may be version-controlled externally and installed via npx skills or other tooling. Docs
 should not duplicate or override skill content.
+
+### Glossary (`docs/CONTEXT.md`)
+
+The project's ubiquitous language: one canonical name per concept, plus the aliases to avoid. It is
+the only doc CLAUDE.md marks as always-read, because naming happens in every task.
+
+- **Location:** `docs/CONTEXT.md`. One glossary only: this repo is a single context spanning all
+  four crates, so it is never split per crate or per directory
+- **Loaded when:** always, per CLAUDE.md Required Reading
+- **Content:** terms, relationships, flagged ambiguities. No implementation details, no decisions,
+  no rules
+- **Written by:** `/grill`, inline, as terms get resolved. Format lives in
+  `.agents/skills/grill/references/CONTEXT-FORMAT.md`
+
+### Decision records (`docs/adr/`)
+
+Numbered records of decisions that were hard to reverse, surprising without context, and the result
+of a real trade-off. An ADR captures why a choice was made at a point in time, not how the code
+behaves today.
+
+- **Location:** `docs/adr/NNNN-slug.md`, sequentially numbered
+- **Loaded when:** an agent needs the reasoning behind an existing decision, or `/grill` is checking
+  whether a question is already settled
+- **Content:** append-only history. Supersede an old ADR with a new one rather than rewriting it to
+  match the present
+- **Written by:** `/grill`, on the rare occasion it offers one. Format lives in
+  `.agents/skills/grill/references/ADR-FORMAT.md`
+- Docs may cite an ADR by path. Code comments may not, per the Comment Rules in CLAUDE.md
 
 ## When to use which
 
@@ -44,9 +73,12 @@ should not duplicate or override skill content.
 | Decision tree an agent should follow automatically                             | Doc   |
 | Tool the user invokes on demand                                                | Skill |
 | Reference material (API patterns, schema placement, test layout)               | Doc   |
+| Canonical name for a domain concept, or an alias to stop using                 | Glossary |
+| Hard-to-reverse choice with real alternatives a reader would question          | ADR   |
 
 **Rule of thumb:** if it's a rule to follow during work → doc. If it's a task to perform on
-demand → skill.
+demand → skill. If it's what to call something → glossary. If it's why a settled choice was
+made → ADR.
 
 ## Creating a new doc
 

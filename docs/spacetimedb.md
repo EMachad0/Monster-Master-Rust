@@ -9,7 +9,7 @@ Read this before touching:
 - the **Bridge** (`crates/stdb_bevy`)
 - the client **connection** code in `crates/game`
 
-See `../CONTEXT.md` for the canonical meaning of Module / Reducer / Bindings / Bridge / Game.
+See `CONTEXT.md` for the canonical meaning of Module / Reducer / Bindings / Bridge / Game.
 
 ## Critical rules
 
