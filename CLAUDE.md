@@ -9,7 +9,7 @@ A multiplayer game: a **Bevy** client (web via WebAssembly + native desktop) on 
 - **Backend:** self-hosted **SpacetimeDB 2.7** (Docker). The Module is written in Rust.
 - **Bridge:** `stdb_bevy` — a hand-written, module-agnostic Bevy↔SpacetimeDB integration over
   `spacetimedb-sdk` 2.7. We deliberately do **not** use the `bevy_spacetimedb` crate
-  (see `../docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`).
+  (see `docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`).
 - **Toolchain:** `rust-toolchain.toml` pins Rust (SpacetimeDB 2.7 needs ≥ 1.93); `mise` installs
   `just`, `trunk`, `spacetimedb-cli`, and `worktrunk` (`wt`, the worktree manager). Dependency
   versions are centralized in the root `Cargo.toml` `[workspace.dependencies]`.
@@ -23,7 +23,7 @@ A multiplayer game: a **Bevy** client (web via WebAssembly + native desktop) on 
 | `stdb_bevy`     | The **Bridge** (generic; knows no specific Module)                          |
 | `game`          | The Bevy app. `trunk` builds it to wasm; `cargo run -p game` for desktop    |
 
-Glossary of these terms lives in `../CONTEXT.md`.
+Glossary of these terms lives in `docs/CONTEXT.md`.
 
 ## Common commands
 
@@ -39,9 +39,12 @@ Glossary of these terms lives in `../CONTEXT.md`.
 
 ## Required Reading
 
-These docs are **not** optional background. When a task matches one, you **MUST read the whole doc
-before writing any code** — they encode conventions you are expected to follow, not summarize.
+These docs are **not** optional background. The glossary applies to every task; the rest are matched
+by task type. When one applies, you **MUST read the whole doc before writing any code** — they
+encode conventions you are expected to follow, not summarize.
 
+- Always, whatever the task: read `docs/CONTEXT.md`. It fixes the project's ubiquitous language, so
+  that code, docs, and conversation use the same word for the same concept.
 - Before writing or changing **tests**, or designing code that must be testable: read `docs/testing.md`
 - Before working on **SpacetimeDB** (the Module, reducers, the Bridge, bindings, or the client
   connection): read `docs/spacetimedb.md`
@@ -55,7 +58,7 @@ Invoke these with `/<name>`. When a request matches one, use it rather than impr
 - **`dev-tdd`** — collaborative, pair-style TDD: you write the tests, the developer writes the
   implementation, moving one vertical slice at a time. Use when building a feature or fixing a bug
   together, test-first.
-- **`grill-with-docs`** — relentless interview that stress-tests a plan against the project's
+- **`grill`** — relentless interview that stress-tests a plan against the project's
   language and documented decisions. Use before building, to settle a fuzzy design.
 - **`handoff`** — compact the current conversation into a handoff document for another agent. Use
   when wrapping up or passing work along.
@@ -74,9 +77,10 @@ When writing new comments:
 - Keep them **concise**.
 - Comment **what is not easily inferred from the code** — the *why*, a non-obvious constraint, a
   subtle edge case — not what the code already says plainly.
-- **Never reference untracked files** (e.g. ADRs, `CONTEXT.md`). They live outside the repo's
-  working tree, so such references dangle for anyone without the parent layout. (This applies to
-  *code comments* only — docs may describe those decisions in their own words.)
+- **Never reference ADRs or `docs/CONTEXT.md`.** State the *why* inline instead. Those docs get
+  moved, renumbered, superseded, and deleted; a comment that points at one then has to be chased
+  and updated, and a comment that leans on one has stopped explaining itself. (This applies to
+  *code comments* only: docs may reference each other freely.)
 
 ## Always Check Your Work
 
