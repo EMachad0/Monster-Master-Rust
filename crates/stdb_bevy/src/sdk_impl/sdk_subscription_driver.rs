@@ -65,7 +65,7 @@ where
                 let sink = sink.clone();
                 move |_ctx, err| {
                     bevy::log::error!("SpacetimeDB subscription failed: {err}");
-                    sink.error(StdbBevyError::from(err));
+                    sink.error(StdbBevyError::driver(err));
                 }
             })
             .subscribe(subscription.queries());
