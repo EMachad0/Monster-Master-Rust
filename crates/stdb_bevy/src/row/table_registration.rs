@@ -107,12 +107,12 @@ macro_rules! stdb_table {
     ($accessor:ident => $row:ty, key = $key:ident) => {
         $crate::TableRegistration::pk(
             |conn, fwd| {
-                use $crate::__sdk::DbContext as _;
+                use $crate::DbAccess as _;
                 fwd.forward(&conn.db().$accessor())
             },
             |conn| {
-                use $crate::__sdk::{DbContext as _, Table as _};
-                conn.db().$accessor().iter().collect()
+                use $crate::{DbAccess as _, RowCollection as _};
+                conn.db().$accessor().rows()
             },
             |row| row.$key.clone(),
             $crate::RowMessagesMask::ALL,
@@ -123,12 +123,12 @@ macro_rules! stdb_table {
     ($accessor:ident => $row:ty, key = $key:ident, [$($cb:ident),+ $(,)?]) => {
         $crate::TableRegistration::pk(
             |conn, fwd| {
-                use $crate::__sdk::DbContext as _;
+                use $crate::DbAccess as _;
                 fwd.forward(&conn.db().$accessor())
             },
             |conn| {
-                use $crate::__sdk::{DbContext as _, Table as _};
-                conn.db().$accessor().iter().collect()
+                use $crate::{DbAccess as _, RowCollection as _};
+                conn.db().$accessor().rows()
             },
             |row| row.$key.clone(),
             $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },

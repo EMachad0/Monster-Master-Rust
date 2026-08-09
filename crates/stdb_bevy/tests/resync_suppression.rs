@@ -11,8 +11,8 @@
 //! baseline and the reconnected connection are independent.
 
 use bevy::prelude::*;
-use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
+use stdb_bevy::{DbAccess, RowCollection};
 use stdb_bevy::{
     RowInserted, RowMessagesMask, StdbConnect, StdbDisconnect, StdbPlugin, StdbSystemSet,
     TableRegistration,
@@ -32,7 +32,7 @@ fn player(id: u32, name: &str) -> Player {
 }
 
 /// DbView whose `player()` table both **re-fires** its rows through `on_insert` (the Snapshot
-/// re-delivery) and **presents** them through `iter()` (the cache the diff reads).
+/// re-delivery) and **presents** them through `rows()` (the cache the diff reads).
 #[derive(Clone)]
 struct GameDb {
     players: Vec<Player>,
@@ -70,7 +70,7 @@ fn app(players: Vec<Player>) -> App {
             // Raw `pk` (no macro), so a direct break can't hide behind the macro path.
             TableRegistration::pk(
                 |conn, fwd| fwd.forward(&conn.db().player()),
-                |c| c.db().player().iter().collect(),
+                |c| c.db().player().rows(),
                 |p| p.id,
                 RowMessagesMask::ALL,
                 "player",
