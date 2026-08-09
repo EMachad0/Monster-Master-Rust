@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bevy::ecs::resource::Resource;
 use spacetimedb_sdk::{DbConnectionBuilder, DbContext};
 
-use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbToken};
+use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbIdentity, StdbToken};
 
 use super::{SdkDbConnection, SdkSpacetimeModule};
 
@@ -66,9 +66,12 @@ where
                 let sink = sink.clone();
                 let stdb_token = self.token.clone();
                 move |_connection, identity, token| {
-                    sink.identified(identity).unwrap_or_else(
-                        |err| bevy::log::error!(%err, "lifecycle channel send failed"),
-                    );
+                    sink.identified(StdbIdentity::new(identity.to_byte_array()))
+                        .unwrap_or_else(
+                            |err| bevy::log::error!(%err, "lifecycle channel send failed"),
+                        );
+                    // Logged from the SDK value, which displays hex where the Bridge's newtype
+                    // would print raw bytes.
                     bevy::log::info!(%identity, "connected");
                     stdb_token.set(token);
                 }

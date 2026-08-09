@@ -19,7 +19,7 @@ pub enum LifecycleEvent<C: StdbConn> {
     Disconnected,
     ConnectionError(StdbBevyError),
     Connecting,
-    Identified(spacetimedb_sdk::Identity),
+    Identified(StdbIdentity),
 }
 
 pub struct LifecycleSink<C: StdbConn> {
@@ -37,7 +37,7 @@ impl<C: StdbConn> LifecycleSink<C> {
 
     pub fn identified(
         &self,
-        identity: spacetimedb_sdk::Identity,
+        identity: StdbIdentity,
     ) -> Result<(), crossbeam_channel::SendError<LifecycleEvent<C>>> {
         self.sender.send(LifecycleEvent::Identified(identity))
     }
@@ -134,7 +134,7 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
                 commands.insert_resource(StdbStatus::Connecting);
             }
             LifecycleEvent::Identified(identity) => {
-                commands.insert_resource(StdbIdentity(identity));
+                commands.insert_resource(identity);
             }
         }
     }
@@ -143,8 +143,6 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
-
-    use spacetimedb_sdk::Identity;
 
     use crate::test_support::{CannedDriver, FakeConn, FakeDriver, test_app};
     use crate::{StdbIdentity, StdbPreviousConnection, Subscription};
@@ -373,7 +371,7 @@ mod tests {
     fn identified_signal_inserts_the_stdb_identity_resource() {
         let mut app = test_app(FakeDriver::default());
 
-        let id = Identity::from_byte_array([7; 32]);
+        let id = StdbIdentity::new([7; 32]);
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
         sink.identified(id).unwrap();
 
@@ -384,7 +382,7 @@ mod tests {
             .get_resource::<StdbIdentity>()
             .expect("the Identified signal must insert StdbIdentity");
         assert_eq!(
-            **identity, id,
+            *identity, id,
             "StdbIdentity must carry the identity delivered by the Identified signal",
         );
     }
@@ -393,7 +391,7 @@ mod tests {
     fn disconnect_removes_the_stdb_identity_resource() {
         let mut app = test_app(FakeDriver::default());
 
-        let id = Identity::from_byte_array([7; 32]);
+        let id = StdbIdentity::new([7; 32]);
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
         sink.connected(FakeConn).unwrap();
         sink.identified(id).unwrap();
@@ -437,7 +435,7 @@ mod tests {
     fn reconnect_reinstalls_the_stdb_identity_resource() {
         let mut app = test_app(FakeDriver::default());
 
-        let id = Identity::from_byte_array([7; 32]);
+        let id = StdbIdentity::new([7; 32]);
         let sink = app.world().resource::<LifecycleChannel<FakeConn>>().sink();
 
         // Connect and identify, then drop.
@@ -461,7 +459,7 @@ mod tests {
             .get_resource::<StdbIdentity>()
             .expect("a reconnect that re-identifies must reinstall StdbIdentity");
         assert_eq!(
-            **identity, id,
+            *identity, id,
             "the reinstalled identity is the same across a same-session reconnect (token reuse)",
         );
     }

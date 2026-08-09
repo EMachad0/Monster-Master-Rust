@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use spacetimedb_sdk::{DbContext, Identity};
+use spacetimedb_sdk::Identity;
 use stdb_bevy::{
     RowDeleted, RowEntities, RowInserted, StdbConnection, StdbIdentity, StdbSync, Subscription,
 };
@@ -62,7 +62,7 @@ pub fn spawn_cursor_on_insert(
         });
         entity_commands.insert(OwnedBy(player_entity));
         entity_commands.insert(Cursor::from(message.row()));
-        if *identity == player_identity {
+        if *identity == player_identity.to_byte_array() {
             entity_commands.insert(Own);
         }
     }
@@ -93,6 +93,6 @@ pub fn track_cursor(
         && let Ok(Cursor { x: x0, y: y0, .. }) = cursor.single()
         && ((x - *x0).abs() > f32::EPSILON || (y - *y0).abs() > f32::EPSILON)
     {
-        let _ = connection.reducers().set_cursor_position(x, y);
+        let _ = connection.reducers.set_cursor_position(x, y);
     }
 }
