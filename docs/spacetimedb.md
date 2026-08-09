@@ -161,18 +161,20 @@ and which sets you get depends on the relation:
 
 Three consequences worth knowing before touching the Bridge's row paths:
 
-- **A view is shaped exactly like a keyless table**, so `TableRegistration::non_pk` and
-  `forward_keyless` already accept one. Views need no new Bridge support.
+- **A view is shaped exactly like a keyless table**, and the Bridge no longer registers either: the
+  keyless path was deleted because no Module relation used it, so a view is currently
+  unregisterable. Re-entry trigger is the first `#[view]` in the Module, which brings the path back
+  as a pk registration with a narrower mask plus a caller-supplied key fn. The old BSATN key
+  extractor is recoverable from git history.
 - **The capability traits are not a looser bound for anything the Bridge forwards today.** Every
   `With*` has `TableLike` as its supertrait, and `TableLike` carries `count` + `iter`, so
   `WithInsert + WithDelete + WithUpdate` requires exactly the same capabilities as
   `TableWithPrimaryKey`. The forwarder binds to the capability traits because they say which
   callback each path needs, not because they admit more types.
-- **An event table cannot be registered.** It has no `Table` impl and no `WithDelete`, so neither
-  `forward` nor `forward_keyless` accepts its handle. Supporting one needs an insert-only forward
-  path, an insert-only messages mask, and an exemption from **Resync**: an event table's `iter()`
-  always yields empty, so the reconnect diff would classify every event row it had seen as a
-  **Ghost row**.
+- **An event table cannot be registered.** It has no `Table` impl and no `WithDelete`, so `forward`
+  does not accept its handle. Supporting one needs an insert-only forward path, an insert-only
+  messages mask, and an exemption from **Resync**: an event table's `iter()` always yields empty, so
+  the reconnect diff would classify every event row it had seen as a **Ghost row**.
 
 To re-derive the table, declare the relations in a throwaway crate depending on `spacetimedb` and run
 `spacetimedb-cli generate --lang rust`, then grep the output for `impl .* for .*TableHandle`. Note

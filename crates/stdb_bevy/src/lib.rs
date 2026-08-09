@@ -42,9 +42,7 @@ pub use crate::reducer::reducer_channel::ReducerOutcomeSink;
 pub use crate::reducer::reducer_events::{ReducerCommitted, ReducerFailed};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
-pub use crate::row::row_messages::{
-    KeylessMessagesMask, RowDeleted, RowInserted, RowMessagesMask, RowUpdated,
-};
+pub use crate::row::row_messages::{RowDeleted, RowInserted, RowMessagesMask, RowUpdated};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_builder::SdkBuilder, sdk_connection_driver::SdkConnectionDriver,
