@@ -32,7 +32,8 @@ _Avoid_: codegen, stubs, types, glue.
 The module-agnostic integration between SpacetimeDB and Bevy: it advances the connection each frame
 and turns connection lifecycle and table/reducer changes into Bevy events and resources. Knows
 nothing about any specific Module.
-Lives in the `stdb_bevy` crate.
+Lives in the `stdb_bevy` crate (the SDK-free core) plus the `stdb_bevy_sdk` crate (the adapter
+binding the core's seams to the SpacetimeDB SDK).
 _Avoid_: plugin, adapter, client, SDK wrapper.
 
 **Game**:
