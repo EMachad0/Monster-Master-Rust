@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::ecs::event::Event;
 
 #[derive(Debug, Clone, Event)]
@@ -13,13 +15,29 @@ impl StdbBevyErrorEvent {
     }
 }
 
+/// A failure the Bridge surfaces to the Game.
+///
+/// The driver's cause stays type-erased rather than being enumerated into variants. The Bridge's
+/// core names no driver type, and a driver reports most causes as message strings anyway, so
+/// typing them finer would mean parsing those strings and re-deciding the mapping on every driver
+/// upgrade. A consumer that needs the concrete cause downcasts the `Driver` payload; a semantic
+/// variant is only worth adding once a Game needs the distinction and the failure mode has been
+/// observed in practice.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum StdbBevyError {
     #[error("Connection Refused")]
     ConnectionRefused,
 
     #[error(transparent)]
-    SdkError(#[from] spacetimedb_sdk::Error),
+    Driver(Arc<dyn std::error::Error + Send + Sync>),
+}
+
+impl StdbBevyError {
+    /// Wraps a cause reported by the driver. `Arc` keeps the error `Clone`, which the Bridge's
+    /// events require, without giving up the cause itself.
+    pub fn driver(cause: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Driver(Arc::new(cause))
+    }
 }
 
 #[cfg(test)]
@@ -66,6 +84,18 @@ mod tests {
             *app.world().resource::<StdbStatus>(),
             StdbStatus::Disconnected,
             "a connection error must leave the status Disconnected",
+        );
+    }
+
+    #[test]
+    fn driver_error_displays_the_underlying_cause_verbatim() {
+        let error = StdbBevyError::driver(std::io::Error::other("host unreachable"));
+
+        assert_eq!(
+            format!("{error}"),
+            "host unreachable",
+            "the driver cause displays unwrapped, so the connect-failure log reads as the driver \
+             reported it",
         );
     }
 }

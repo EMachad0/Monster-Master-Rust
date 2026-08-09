@@ -94,7 +94,7 @@ where
                 move |_error_ctx, error| {
                     // The drain logs `connect failed` (warn) once from the ConnectionError event;
                     // logging here too would double up at two levels.
-                    sink.connection_error(StdbBevyError::from(error))
+                    sink.connection_error(StdbBevyError::driver(error))
                         .unwrap_or_else(
                             |err| bevy::log::error!(%err, "lifecycle channel send failed"),
                         );
@@ -109,7 +109,7 @@ where
             }
             // The drain logs the failure once as `connect failed` (warn) off this event.
             Err(err) => {
-                sink.connection_error(StdbBevyError::from(err))
+                sink.connection_error(StdbBevyError::driver(err))
                     .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
             }
         }
@@ -124,7 +124,7 @@ where
                 }
                 // The drain logs the failure once as `connect failed` (warn) off this event.
                 Err(err) => {
-                    sink.connection_error(StdbBevyError::from(err))
+                    sink.connection_error(StdbBevyError::driver(err))
                         .unwrap_or_else(
                             |err| bevy::log::error!(%err, "lifecycle channel send failed"),
                         );

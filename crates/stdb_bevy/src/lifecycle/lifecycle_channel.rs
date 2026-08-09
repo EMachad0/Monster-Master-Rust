@@ -125,7 +125,7 @@ pub(crate) fn drain_lifecycle_sink<C: StdbConn>(
             }
             LifecycleEvent::ConnectionError(e) => {
                 // Expected while the server is down (the retry loop drives the next attempt), so warn
-                // rather than error. `StdbBevyError` is transparent over the SDK cause.
+                // rather than error. `StdbBevyError` is transparent over the driver's cause.
                 bevy::log::warn!(error = %e, "connect failed");
                 commands.insert_resource(StdbStatus::Disconnected);
                 commands.trigger(StdbBevyErrorEvent::new(e));
