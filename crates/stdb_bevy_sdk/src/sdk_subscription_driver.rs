@@ -1,9 +1,9 @@
 use bevy::{ecs::resource::Resource, platform::collections::HashMap};
 use spacetimedb_sdk::{DbContext, SubscriptionHandle};
 
-use crate::{StdbBevyError, StdbConn, StdbSubscriptionDriver, SubscriptionId};
+use stdb_bevy::{StdbBevyError, StdbConn, StdbSubscriptionDriver, SubscriptionId};
 
-use super::{SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder};
+use crate::{SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder};
 
 #[derive(Debug, Resource)]
 pub struct SdkSubscriptionDriver<M, C>
@@ -42,9 +42,9 @@ where
 
     fn subscribe(
         &mut self,
-        conn: &crate::StdbConnection<Self::Conn>,
-        sink: crate::SubscriptionSink,
-        subscription: &crate::subscription::subscription_components::Subscription,
+        conn: &stdb_bevy::StdbConnection<Self::Conn>,
+        sink: stdb_bevy::SubscriptionSink,
+        subscription: &stdb_bevy::Subscription,
     ) -> SubscriptionId {
         let subscription_id = {
             let old_id = self.id_mint;
@@ -75,7 +75,7 @@ where
         subscription_id
     }
 
-    fn unsubscribe(&mut self, sink: crate::SubscriptionSink, subscription_id: &SubscriptionId) {
+    fn unsubscribe(&mut self, sink: stdb_bevy::SubscriptionSink, subscription_id: &SubscriptionId) {
         if let Some(handle) = self.subscription_handles.remove(subscription_id) {
             sink.unsubscribe();
             handle.unsubscribe().unwrap_or_else(|err| {

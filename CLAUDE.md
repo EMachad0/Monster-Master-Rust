@@ -9,22 +9,22 @@ A multiplayer game: a **Bevy** client (web via WebAssembly + native desktop) on 
 - **Backend:** self-hosted **SpacetimeDB 2.7** (Docker). The Module is written in Rust.
 - **Bridge:** `stdb_bevy` — a hand-written, module-agnostic Bevy↔SpacetimeDB integration over
   `spacetimedb-sdk` 2.7. We deliberately do **not** use the `bevy_spacetimedb` crate
-  (see `docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`). It is being split into an
-  SDK-free core and an `stdb_bevy_sdk` adapter crate that owns the SDK dependency, so no
-  `spacetimedb_sdk` path may be named outside the adapter
-  (see `docs/adr/0013-sdk-boundary-via-adapter-crate-split.md`; the adapter crate does not exist
-  yet).
+  (see `docs/adr/0001-bevy-spacetimedb-with-hand-written-bridge.md`). It is split into an SDK-free
+  core and an `stdb_bevy_sdk` adapter crate that owns the SDK dependency, so no `spacetimedb_sdk`
+  path may be named outside the adapter
+  (see `docs/adr/0013-sdk-boundary-via-adapter-crate-split.md`).
 - **Toolchain:** `rust-toolchain.toml` pins Rust (SpacetimeDB 2.7 needs ≥ 1.93); `mise` installs
   `just`, `trunk`, `spacetimedb-cli`, and `worktrunk` (`wt`, the worktree manager). Dependency
   versions are centralized in the root `Cargo.toml` `[workspace.dependencies]`.
 
 ### Workspace (`crates/`)
 
-| Crate           | Role                                                                       |
-| --------------- | -------------------------------------------------------------------------- |
+| Crate           | Role                                                                        |
+| --------------- | --------------------------------------------------------------------------- |
 | `stdb_module`   | The **Module**: tables + reducers. Built to wasm by the CLI, not host cargo |
 | `stdb_bindings` | Generated client bindings. **Committed; never hand-edit** — `just generate` |
-| `stdb_bevy`     | The **Bridge** (generic; knows no specific Module). SDK adapter splits out  |
+| `stdb_bevy`     | The **Bridge** core (generic; knows no specific Module). Names no SDK type  |
+| `stdb_bevy_sdk` | The **Bridge** adapter: the drivers, `stdb_table!`, and the SDK dependency  |
 | `game`          | The Bevy app. `trunk` builds it to wasm; `cargo run -p game` for desktop    |
 
 Glossary of these terms lives in `docs/CONTEXT.md`.

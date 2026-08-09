@@ -13,7 +13,7 @@ use crate::{
 
 /// One table's opt-in to row-change events: the row channel, the `RowInserted` / `RowUpdated` /
 /// `RowDeleted` messages, the per-connect callback wiring, and the reconnect diff, for a single row
-/// type. Built by [`stdb_table!`] and installed by [`register`](Self::register).
+/// type. Built by the adapter's `stdb_table!` macro and installed by [`register`](Self::register).
 pub struct TableRegistration<C: StdbConn> {
     install: Box<dyn Fn(&mut bevy::app::App) + Send + Sync + 'static>,
     mark: std::marker::PhantomData<C>,
@@ -94,45 +94,4 @@ pub(crate) fn add_stdb_table<C, R, K>(
         )
             .in_set(StdbSystemSet::RowMessagesPush),
     );
-}
-
-/// Builds a [`TableRegistration`] for one table.
-///
-/// `stdb_table!(accessor => Row, key = <field>)` forwards all events; a trailing
-/// `[insert, delete, ...]` selects a subset. `key` names the primary key: it is the identity the
-/// reconnect diff pairs rows by, not any key a mirror uses to locate entities. Only primary-keyed
-/// tables can register, since a keyless table or view has no diffable row identity.
-#[macro_export]
-macro_rules! stdb_table {
-    ($accessor:ident => $row:ty, key = $key:ident) => {
-        $crate::TableRegistration::pk(
-            |conn, fwd| {
-                use $crate::DbAccess as _;
-                fwd.forward(&conn.db().$accessor())
-            },
-            |conn| {
-                use $crate::{DbAccess as _, RowCollection as _};
-                conn.db().$accessor().rows()
-            },
-            |row| row.$key.clone(),
-            $crate::RowMessagesMask::ALL,
-            stringify!($accessor),
-        )
-    };
-
-    ($accessor:ident => $row:ty, key = $key:ident, [$($cb:ident),+ $(,)?]) => {
-        $crate::TableRegistration::pk(
-            |conn, fwd| {
-                use $crate::DbAccess as _;
-                fwd.forward(&conn.db().$accessor())
-            },
-            |conn| {
-                use $crate::{DbAccess as _, RowCollection as _};
-                conn.db().$accessor().rows()
-            },
-            |row| row.$key.clone(),
-            $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },
-            stringify!($accessor),
-        )
-    };
 }

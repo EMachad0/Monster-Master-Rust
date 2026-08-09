@@ -9,13 +9,13 @@ publish = false
 # e2e suite under `tests/`. Off by default, so it never bloats production builds.
 test-support = []
 
+# No SpacetimeDB SDK dependency here, deliberately: the SDK is reachable only from `stdb_bevy_sdk`,
+# so a stray SDK reference in this crate fails to build instead of merely tripping a lint.
 [dependencies]
 bevy.workspace = true
 crossbeam-channel.workspace = true
 thiserror.workspace = true
-spacetimedb-sdk.workspace = true
 rand.workspace = true
-http.workspace = true
 smallvec.workspace = true
 
 # Enables `test-support` when building this crate's own integration tests under `tests/`
@@ -23,12 +23,3 @@ smallvec.workspace = true
 # the integration-test build only.
 [dev-dependencies]
 stdb_bevy = { path = ".", features = ["test-support"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# The SDK's browser websocket path (gloo-net). Native uses the default tokio path; only wasm needs
-# this. Feature unification means enabling it here also applies to stdb_bindings' SDK on wasm.
-spacetimedb-sdk = { workspace = true, features = ["browser"] }
-# getrandom needs its JS backend in the browser (see .cargo/config.toml for the matching cfg).
-# getrandom = { workspace = true, features = ["wasm_js"] }
-# Drives the SDK's async build()/connection on the browser's event loop.
-wasm-bindgen-futures = { workspace = true }

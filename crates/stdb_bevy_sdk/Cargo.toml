@@ -1,0 +1,23 @@
+[package]
+name = "stdb_bevy_sdk"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+stdb_bevy.workspace = true
+spacetimedb-sdk.workspace = true
+http.workspace = true
+
+# The bridge core's fakes drive this crate's own integration tests under `tests/`; the feature is
+# off by default, so enabling it here keeps it out of production builds.
+[dev-dependencies]
+stdb_bevy = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The SDK's browser websocket path (gloo-net). Native uses the default tokio path; only wasm needs
+# this. Feature unification means enabling it here also applies to stdb_bindings' SDK on wasm.
+spacetimedb-sdk = { workspace = true, features = ["browser"] }
+# Drives the SDK's async build()/connection on the browser's event loop.
+wasm-bindgen-futures = { workspace = true }

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use stdb_bevy::{SdkPluginExt, StdbPlugin, SyncAppExt, is_stdb_connected, stdb_table};
+use stdb_bevy::{StdbPlugin, SyncAppExt, is_stdb_connected};
+use stdb_bevy_sdk::{SdkPluginExt, stdb_table};
 use stdb_bindings::{CursorTableAccess, DbConnection, PlayerTableAccess};
 
 mod cursor;
@@ -26,8 +27,11 @@ fn main() {
             ])
             // The macro-free form of the `player` registration above, kept as a worked example.
             // .add_tables([stdb_bevy::TableRegistration::pk(
-            //     |conn, fwd| fwd.forward(&conn.db.player()),
-            //     |conn| stdb_bevy::RowCollection::rows(&conn.db.player()),
+            //     |conn, fwd| fwd.forward(&stdb_bevy_sdk::SdkTable::new(conn.db.player())),
+            //     |conn| {
+            //         let table = stdb_bevy_sdk::SdkTable::new(conn.db.player());
+            //         stdb_bevy::RowCollection::rows(&table)
+            //     },
             //     |row| row.identity,
             //     stdb_bevy::RowMessagesMask::ALL,
             //     "player",
