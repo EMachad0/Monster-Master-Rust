@@ -37,7 +37,7 @@ pub use crate::error::{StdbBevyError, StdbBevyErrorEvent};
 pub use crate::lifecycle::lifecycle_channel::LifecycleSink;
 pub use crate::lifecycle::lifecycle_events::{StdbConnected, StdbDisconnected};
 pub use crate::lifecycle::reconnect::{ReconnectAction, ReconnectPolicy, ReconnectState};
-pub use crate::reducer::reducer_channel::ReducerOutcomeSink;
+pub use crate::reducer::reducer_channel::{ReducerOutcome, ReducerOutcomeSink};
 pub use crate::reducer::reducer_events::{ReducerCommitted, ReducerFailed};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
@@ -48,7 +48,8 @@ pub use crate::row::table_capabilities::{
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_builder::SdkBuilder, sdk_connection_driver::SdkConnectionDriver,
-    sdk_plugin_ext::SdkPluginExt, sdk_subscription_driver::SdkSubscriptionDriver,
+    sdk_plugin_ext::SdkPluginExt, sdk_reducer_sink_ext::SdkReducerSinkExt,
+    sdk_subscription_driver::SdkSubscriptionDriver,
 };
 pub use crate::subscription::stdb_subscription_driver::{
     NoSubscriptions, StdbSubscriptionDriver, SubscriptionId,

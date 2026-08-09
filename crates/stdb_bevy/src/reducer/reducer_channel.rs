@@ -3,11 +3,21 @@ use bevy::ecs::{
     system::{Commands, Res},
     world::World,
 };
-use spacetimedb_sdk::__codegen::InternalError;
 
 use crate::{ReducerCommitted, ReducerFailed};
 
 type OutcomeCommand = Box<dyn FnOnce(&mut World) + Send>;
+
+/// How a Reducer call this client made ended. Covers only the caller's own calls: the server never
+/// reports another client's reducer runs back to this client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReducerOutcome {
+    /// The Reducer ran and its transaction committed.
+    Committed,
+    /// The Reducer did not commit, whether it returned an error or the host aborted the call.
+    /// Carries a human-readable reason.
+    Failed(String),
+}
 
 #[derive(Clone, Resource)]
 pub struct ReducerOutcomeSink {
@@ -15,28 +25,22 @@ pub struct ReducerOutcomeSink {
 }
 
 impl ReducerOutcomeSink {
-    pub fn cb<K, Ctx>(
-        &self,
-    ) -> impl FnOnce(&Ctx, Result<Result<(), String>, InternalError>) + Send + 'static
+    /// A one-shot callback that reports one call's outcome under the Game's marker `K`. The caller
+    /// classifies the outcome, so this signature is fixed by the bridge rather than by whatever
+    /// shape the driver's own callback happens to take.
+    pub fn cb<K>(&self) -> impl FnOnce(ReducerOutcome) + Send + 'static
     where
         K: Send + Sync + 'static,
     {
         let sender = self.sender.clone();
-        move |_ctx: &Ctx, result| {
-            let command: OutcomeCommand = match result {
-                Ok(Ok(())) => Box::new(|world: &mut World| {
+        move |outcome| {
+            let command: OutcomeCommand = match outcome {
+                ReducerOutcome::Committed => Box::new(|world: &mut World| {
                     world.trigger(ReducerCommitted::<K>::new());
                 }),
-                Ok(Err(error)) => Box::new(move |world: &mut World| {
+                ReducerOutcome::Failed(error) => Box::new(move |world: &mut World| {
                     world.trigger(ReducerFailed::<K>::new(error));
                 }),
-                // A host abort folds into a failure carrying the internal error's message.
-                Err(internal) => {
-                    let message = internal.to_string();
-                    Box::new(move |world: &mut World| {
-                        world.trigger(ReducerFailed::<K>::new(message));
-                    })
-                }
             };
             sender
                 .send(command)
@@ -45,7 +49,7 @@ impl ReducerOutcomeSink {
     }
 }
 
-/// The crate-internal channel carrying queued outcome triggers from SDK callbacks to the drain.
+/// The crate-internal channel carrying queued outcome triggers from the sink to the drain.
 #[derive(Resource)]
 pub(crate) struct ReducerOutcomeChannel {
     sender: crossbeam_channel::Sender<OutcomeCommand>,
@@ -82,7 +86,6 @@ pub(crate) fn drain_reducer_outcomes(channel: Res<ReducerOutcomeChannel>, mut co
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
-    use spacetimedb_sdk::__codegen::InternalError;
 
     use super::*;
     use crate::{ReducerCommitted, ReducerFailed};
@@ -102,7 +105,7 @@ mod tests {
     struct FailedA(Vec<String>);
 
     /// An app with the channel and drain installed and no connection. The seam is fed directly
-    /// through `cb`, the same seam the SDK `<reducer>_then` callback drives in production.
+    /// through `cb`, the same seam the SDK adapter's callback pushes through in production.
     fn seam_app() -> App {
         let mut app = App::new();
         app.insert_resource(ReducerOutcomeChannel::new());
@@ -120,9 +123,8 @@ mod tests {
         app.init_resource::<CommittedA>();
         app.add_observer(|_: On<ReducerCommitted<A>>, mut c: ResMut<CommittedA>| c.0 += 1);
 
-        // A committed call: `Ok(Ok(()))`, the SDK's success shape.
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Ok(Ok(())));
+        let cb = sink(&app).cb::<A>();
+        cb(ReducerOutcome::Committed);
         app.update();
 
         assert_eq!(
@@ -140,8 +142,8 @@ mod tests {
             f.0.push(on.event().error().to_string())
         });
 
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Ok(Ok(())));
+        let cb = sink(&app).cb::<A>();
+        cb(ReducerOutcome::Committed);
         app.update();
 
         assert!(
@@ -151,16 +153,16 @@ mod tests {
     }
 
     #[test]
-    fn err_triggers_reducer_failed_with_message() {
+    fn failed_outcome_triggers_reducer_failed_with_message() {
         let mut app = seam_app();
         app.init_resource::<FailedA>();
         app.add_observer(|on: On<ReducerFailed<A>>, mut f: ResMut<FailedA>| {
             f.0.push(on.event().error().to_string())
         });
 
-        // A reducer that returned an error: `Ok(Err(msg))`, the gameplay rejection path.
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Ok(Err("out of energy".to_string())));
+        // The gameplay rejection path: the Reducer ran and refused.
+        let cb = sink(&app).cb::<A>();
+        cb(ReducerOutcome::Failed("out of energy".to_string()));
         app.update();
 
         assert_eq!(
@@ -171,38 +173,13 @@ mod tests {
     }
 
     #[test]
-    fn panic_triggers_reducer_failed() {
-        let mut app = seam_app();
-        app.init_resource::<FailedA>();
-        app.add_observer(|on: On<ReducerFailed<A>>, mut f: ResMut<FailedA>| {
-            f.0.push(on.event().error().to_string())
-        });
-
-        // A host-aborted call: `Err(InternalError)`, folded into ReducerFailed.
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Err(InternalError::failed_parse("x", "y")));
-        app.update();
-
-        let failed = &app.world().resource::<FailedA>().0;
-        assert_eq!(
-            failed.len(),
-            1,
-            "a panic or abort must fire exactly one ReducerFailed",
-        );
-        assert!(
-            !failed[0].is_empty(),
-            "the folded panic must carry a non-empty error string",
-        );
-    }
-
-    #[test]
     fn failed_does_not_trigger_committed() {
         let mut app = seam_app();
         app.init_resource::<CommittedA>();
         app.add_observer(|_: On<ReducerCommitted<A>>, mut c: ResMut<CommittedA>| c.0 += 1);
 
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Ok(Err("nope".to_string())));
+        let cb = sink(&app).cb::<A>();
+        cb(ReducerOutcome::Failed("nope".to_string()));
         app.update();
 
         assert_eq!(
@@ -221,8 +198,8 @@ mod tests {
         app.add_observer(|_: On<ReducerCommitted<B>>, mut c: ResMut<CommittedB>| c.0 += 1);
 
         // Feed an A outcome only.
-        let cb = sink(&app).cb::<A, ()>();
-        cb(&(), Ok(Ok(())));
+        let cb = sink(&app).cb::<A>();
+        cb(ReducerOutcome::Committed);
         app.update();
 
         assert_eq!(
@@ -245,9 +222,9 @@ mod tests {
 
         // Queue several outcomes before a single drain: the channel is unbounded and the drain loops.
         let s = sink(&app);
-        s.cb::<A, ()>()(&(), Ok(Ok(())));
-        s.cb::<A, ()>()(&(), Ok(Ok(())));
-        s.cb::<A, ()>()(&(), Ok(Ok(())));
+        s.cb::<A>()(ReducerOutcome::Committed);
+        s.cb::<A>()(ReducerOutcome::Committed);
+        s.cb::<A>()(ReducerOutcome::Committed);
         app.update();
 
         assert_eq!(

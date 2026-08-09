@@ -2,11 +2,11 @@
 //!
 //! Drives the Bridge as the Game would: build the plugin, add an observer for a reducer marker, and
 //! feed an outcome through the plugin-inserted `ReducerOutcomeSink`. No crate internals, no
-//! `add_tables`-style registration. `Ctx = ()` stands in for the module's `ReducerEventContext`.
+//! `add_tables`-style registration.
 
 use bevy::prelude::*;
 use stdb_bevy::test_support::{FakeDriver, test_app};
-use stdb_bevy::{ReducerCommitted, ReducerFailed, ReducerOutcomeSink};
+use stdb_bevy::{ReducerCommitted, ReducerFailed, ReducerOutcome, ReducerOutcomeSink};
 
 /// A Game reducer marker: the only per-reducer declaration a consumer writes.
 struct Attack;
@@ -25,11 +25,8 @@ fn plugin_delivers_committed_through_public_api() {
 
     // The plugin wired the sink; the Game reaches it as a resource and tags a call's outcome. No
     // per-reducer registration happened, only the observer above.
-    let cb = app
-        .world()
-        .resource::<ReducerOutcomeSink>()
-        .cb::<Attack, ()>();
-    cb(&(), Ok(Ok(())));
+    let cb = app.world().resource::<ReducerOutcomeSink>().cb::<Attack>();
+    cb(ReducerOutcome::Committed);
     app.update();
 
     assert_eq!(
@@ -47,11 +44,8 @@ fn plugin_delivers_failed_with_message() {
         f.0.push(on.event().error().to_string())
     });
 
-    let cb = app
-        .world()
-        .resource::<ReducerOutcomeSink>()
-        .cb::<Attack, ()>();
-    cb(&(), Ok(Err("denied".to_string())));
+    let cb = app.world().resource::<ReducerOutcomeSink>().cb::<Attack>();
+    cb(ReducerOutcome::Failed("denied".to_string()));
     app.update();
 
     assert_eq!(
