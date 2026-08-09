@@ -1,15 +1,14 @@
 use bevy::prelude::*;
 
 use crate::{
-    KeylessMessagesMask, RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated,
-    StdbConn, StdbConnected, StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
+    RowDeleted, RowForwarder, RowInserted, RowMessagesMask, RowUpdated, StdbConn, StdbConnected,
+    StdbConnection, StdbPreviousConnection, StdbRow, StdbSystemSet,
     row::{
         row_channel::{RowChannel, clear_row_sink, drain_row_sink},
         row_messages_resync::{
             drop_stdbpreviousconnection_after_resync, resync_row_messages_system,
         },
     },
-    sdk_impl::bsatn_key::bsatn_key,
 };
 
 /// One table's opt-in to row-change events: the row channel, the `RowInserted` / `RowUpdated` /
@@ -39,34 +38,6 @@ impl<C: StdbConn> TableRegistration<C> {
         Self {
             install: Box::new(move |app| {
                 add_stdb_table(app, forward, snapshot, key, messages_mask, label);
-            }),
-            mark: std::marker::PhantomData,
-        }
-    }
-
-    /// Registration for a keyless table.
-    ///
-    /// Row identity is the whole row's BSATN, derived internally, so no key is supplied; a changed row
-    /// reads as a delete followed by an insert.
-    pub fn non_pk<R>(
-        forward: fn(&StdbConnection<C>, RowForwarder<R>) -> RowForwarder<R>,
-        snapshot: fn(&C) -> Vec<R>,
-        messages_mask: KeylessMessagesMask,
-        label: &'static str,
-    ) -> Self
-    where
-        R: StdbRow + crate::sdk_impl::Serialize,
-    {
-        Self {
-            install: Box::new(move |app| {
-                add_stdb_table(
-                    app,
-                    forward,
-                    snapshot,
-                    bsatn_key,
-                    messages_mask.into(),
-                    label,
-                );
             }),
             mark: std::marker::PhantomData,
         }
@@ -127,11 +98,10 @@ pub(crate) fn add_stdb_table<C, R, K>(
 
 /// Builds a [`TableRegistration`] for one table.
 ///
-/// `stdb_table!(accessor => Row)` forwards all events; a trailing `[insert, delete, ...]` selects a
-/// subset. `key = <field>` names the primary key and selects the keyed form, whose reconnect diff
-/// yields faithful updates; omitting it selects the keyless form, which reconciles by BSATN and so
-/// reports a change as a delete plus an insert. The `key` field is the identity the diff pairs rows
-/// by, not any key a mirror uses to locate entities.
+/// `stdb_table!(accessor => Row, key = <field>)` forwards all events; a trailing
+/// `[insert, delete, ...]` selects a subset. `key` names the primary key: it is the identity the
+/// reconnect diff pairs rows by, not any key a mirror uses to locate entities. Only primary-keyed
+/// tables can register, since a keyless table or view has no diffable row identity.
 #[macro_export]
 macro_rules! stdb_table {
     ($accessor:ident => $row:ty, key = $key:ident) => {
@@ -162,36 +132,6 @@ macro_rules! stdb_table {
             },
             |row| row.$key.clone(),
             $crate::RowMessagesMask { $($cb: true,)+ ..$crate::RowMessagesMask::NONE },
-            stringify!($accessor),
-        )
-    };
-
-    ($accessor:ident => $row:ty) => {
-        $crate::TableRegistration::non_pk(
-            |conn, fwd| {
-                use $crate::__sdk::DbContext as _;
-                fwd.forward_keyless(&conn.db().$accessor())
-            },
-            |conn| {
-                use $crate::__sdk::{DbContext as _, Table as _};
-                conn.db().$accessor().iter().collect()
-            },
-            $crate::KeylessMessagesMask::INSERT_DELETE,
-            stringify!($accessor),
-        )
-    };
-
-    ($accessor:ident => $row:ty, [$($cb:ident),+ $(,)?]) => {
-        $crate::TableRegistration::non_pk(
-            |conn, fwd| {
-                use $crate::__sdk::DbContext as _;
-                fwd.forward_keyless(&conn.db().$accessor())
-            },
-            |conn| {
-                use $crate::__sdk::{DbContext as _, Table as _};
-                conn.db().$accessor().iter().collect()
-            },
-            $crate::KeylessMessagesMask { $($cb: true,)+ ..$crate::KeylessMessagesMask::NONE },
             stringify!($accessor),
         )
     };

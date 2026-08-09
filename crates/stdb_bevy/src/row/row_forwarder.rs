@@ -44,20 +44,6 @@ impl<R: StdbRow> RowForwarder<R> {
         self
     }
 
-    pub fn forward_keyless<T>(mut self, table: &T) -> Self
-    where
-        T: WithInsert<Row = R> + WithDelete<Row = R>,
-    {
-        let RowMessagesMask { insert, delete, .. } = self.filter;
-        if insert {
-            self = self.inserts(table);
-        }
-        if delete {
-            self = self.deletes(table);
-        }
-        self
-    }
-
     fn inserts<T>(self, table: &T) -> Self
     where
         T: WithInsert<Row = R>,
