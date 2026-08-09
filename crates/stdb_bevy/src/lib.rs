@@ -2,8 +2,6 @@
 //!
 //! This crate knows nothing about any specific Module.
 
-use std::fmt::Debug;
-
 use bevy::prelude::*;
 
 use crate::connection::stdb_connection_driver::{
@@ -50,7 +48,7 @@ pub use crate::row::table_capabilities::{
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_builder::SdkBuilder, sdk_connection_driver::SdkConnectionDriver,
-    sdk_subscription_driver::SdkSubscriptionDriver,
+    sdk_plugin_ext::SdkPluginExt, sdk_subscription_driver::SdkSubscriptionDriver,
 };
 pub use crate::subscription::stdb_subscription_driver::{
     NoSubscriptions, StdbSubscriptionDriver, SubscriptionId,
@@ -232,29 +230,6 @@ where
             bevy::app::Update,
             drain_subscription_sink.in_set(StdbSystemSet::LifecycleEvents),
         );
-    }
-}
-
-impl<M, C> StdbPlugin<SdkBuilder<M, C>, SdkConnectionDriver<M, C>, SdkSubscriptionDriver<M, C>>
-where
-    M: sdk_impl::SdkSpacetimeModule<DbConnection = C>,
-    C: sdk_impl::SdkDbConnection<Module = M>
-        + spacetimedb_sdk::DbContext<SubscriptionBuilder = sdk_impl::SdkSubscriptionBuilder<M>>
-        + StdbConn,
-    M::SubscriptionHandle: Send + Sync,
-{
-    /// Wires the SDK connection and subscription drivers from a URI, database name, and per-frame
-    /// tick, so a Game never names either SDK driver.
-    pub fn sdk<U>(
-        uri: U,
-        database_name: impl Into<String>,
-        tick: fn(&C) -> spacetimedb_sdk::Result<()>,
-    ) -> Self
-    where
-        U: TryInto<http::Uri>,
-        U::Error: Debug,
-    {
-        Self::new(SdkBuilder::new(uri, database_name, tick))
     }
 }
 

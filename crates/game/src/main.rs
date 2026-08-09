@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use stdb_bevy::{StdbPlugin, SyncAppExt, is_stdb_connected, stdb_table};
+use stdb_bevy::{SdkPluginExt, StdbPlugin, SyncAppExt, is_stdb_connected, stdb_table};
 use stdb_bindings::{CursorTableAccess, DbConnection, PlayerTableAccess};
 
 mod cursor;
