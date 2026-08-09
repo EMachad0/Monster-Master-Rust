@@ -169,10 +169,11 @@ Three consequences worth knowing before touching the Bridge's row paths:
 - **The capability traits are not a looser bound for anything the Bridge forwards today.** Every
   `With*` has `TableLike` as its supertrait, and `TableLike` carries `count` + `iter`, so
   `WithInsert + WithDelete + WithUpdate` requires exactly the same capabilities as
-  `TableWithPrimaryKey`. The Bridge's blanket adapters bind to the capability traits because they
-  say which callback each Bridge-owned row-path trait forwards, not because they admit more types.
-- **An event table cannot be registered.** It has no `Table` impl and no `WithDelete`, so it gets no
-  `RowDeleteSource` adapter and `forward` does not accept its handle. Supporting one needs an
+  `TableWithPrimaryKey`. The Bridge's `SdkTable` adapters bind to the capability traits because
+  they say which callback each Bridge-owned row-path trait forwards, not because they admit more
+  types.
+- **An event table cannot be registered.** It has no `Table` impl and no `WithDelete`, so its
+  `SdkTable` gets no `RowDeleteSource` and `forward` does not accept it. Supporting one needs an
   insert-only forward path, an insert-only messages mask, and an exemption from **Resync**: an event
   table's `iter()` always yields empty, so the reconnect diff would classify every event row it had
   seen as a **Ghost row**.

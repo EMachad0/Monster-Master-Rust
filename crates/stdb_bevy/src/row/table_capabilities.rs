@@ -1,9 +1,9 @@
 //! Bridge-owned table capabilities: everything the row path asks of a table handle.
 //!
 //! One trait per callback the forwarder can wire, plus the whole-table read the resync diff makes.
-//! The SDK adapter blanket-implements all of them for every SDK table handle, so a generated handle
-//! satisfies these bounds with no per-table code; test fakes implement them directly and never name
-//! an SDK type.
+//! The SDK adapter implements all of them on one newtype wrapping any SDK table handle, so a
+//! generated handle satisfies these bounds with no per-table code; test fakes implement them
+//! directly and never name an SDK type.
 //!
 //! The callbacks carry the row payload alone. The event context the SDK hands them describes the
 //! transaction that caused the change, which no row path reads, and the callback id it returns is

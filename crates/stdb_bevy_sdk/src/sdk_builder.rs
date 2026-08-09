@@ -1,7 +1,10 @@
 use spacetimedb_sdk::DbContext;
 
-use crate::sdk_impl::{SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder};
-use crate::{SdkConnectionDriver, SdkSubscriptionDriver, StdbBuilder, StdbConn};
+use crate::{
+    SdkConnectionDriver, SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder,
+    SdkSubscriptionDriver,
+};
+use stdb_bevy::{StdbBuilder, StdbConn};
 
 pub struct SdkBuilder<M, C>
 where

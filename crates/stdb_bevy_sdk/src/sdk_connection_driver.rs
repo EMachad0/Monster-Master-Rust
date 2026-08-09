@@ -3,9 +3,9 @@ use std::fmt::Debug;
 use bevy::ecs::resource::Resource;
 use spacetimedb_sdk::{DbConnectionBuilder, DbContext};
 
-use crate::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbIdentity, StdbToken};
+use stdb_bevy::{StdbBevyError, StdbConn, StdbConnectionDriver, StdbIdentity, StdbToken};
 
-use super::{SdkDbConnection, SdkSpacetimeModule};
+use crate::{SdkDbConnection, SdkSpacetimeModule};
 
 #[derive(Resource)]
 pub struct SdkConnectionDriver<M, C>
@@ -54,7 +54,7 @@ where
 {
     type Conn = C;
 
-    fn connect(&self, sink: crate::LifecycleSink<Self::Conn>) {
+    fn connect(&self, sink: stdb_bevy::LifecycleSink<Self::Conn>) {
         sink.connecting()
             .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
 
@@ -135,8 +135,8 @@ where
 
     fn disconnect(
         &self,
-        conn: &crate::StdbConnection<Self::Conn>,
-        sink: crate::LifecycleSink<Self::Conn>,
+        conn: &stdb_bevy::StdbConnection<Self::Conn>,
+        sink: stdb_bevy::LifecycleSink<Self::Conn>,
     ) {
         conn.disconnect()
             .unwrap_or_else(|err| bevy::log::warn!(%err, "disconnect call failed"));
@@ -144,7 +144,7 @@ where
             .unwrap_or_else(|err| bevy::log::error!(%err, "lifecycle channel send failed"));
     }
 
-    fn tick(&self, conn: &crate::StdbConnection<Self::Conn>) {
+    fn tick(&self, conn: &stdb_bevy::StdbConnection<Self::Conn>) {
         (self.tick)(conn).unwrap_or_else(|err| bevy::log::error!(%err, "frame_tick failed"));
     }
 }

@@ -173,9 +173,7 @@ impl<R> FakeTable<R> {
 }
 
 // The bridge-owned capability traits the row paths bind to. A generated handle gets them from the
-// SDK adapter's blanket impls; the fake implements them directly so it names no SDK type, which
-// also means it must not implement the SDK table traits, or those blanket impls would collide with
-// these.
+// SDK adapter's newtype wrapper; the fake implements them directly, so it names no SDK type.
 impl<R: StdbRow> RowInsertSource for FakeTable<R> {
     type Row = R;
 
@@ -216,7 +214,7 @@ impl<R: StdbRow> RowCollection for FakeTable<R> {
 
 /// A driver that connects synchronously, handing back a caller-supplied connection value. Generic
 /// over the connection type `C`, so a test can drive the bridge with a `FakeDbContext<V>` whose
-/// DbView exposes table accessors — the shape the `stdb_table!` macro's `conn.db().<table>()` body
+/// DbView exposes table accessors, the shape a table registration's `conn.db().<table>()` body
 /// needs. (`FakeConnectionDriver` can't: its `Conn` is the field-less `FakeConn`.)
 #[derive(Resource, Clone)]
 pub struct CannedDriver<C: StdbConn + Clone> {
@@ -244,7 +242,7 @@ impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
     fn tick(&self, _conn: &StdbConnection<C>) {}
 }
 
-/// A connection whose `db()` exposes a caller-supplied DbView `V`, so the `stdb_table!` macro's
+/// A connection whose `db()` exposes a caller-supplied DbView `V`, so a table registration's
 /// `conn.db().<table>()` body (and the resync diff's per-table reads) run in a unit test. Each
 /// test supplies its own table accessors through `V`, the way a generated `RemoteTables` does.
 #[derive(Clone)]

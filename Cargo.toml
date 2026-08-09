@@ -3,7 +3,12 @@ resolver = "2"
 members = ["crates/*"]
 # `stdb_module` compiles to wasm via the SpacetimeDB CLI (`just publish`), not host cargo,
 # so it is kept out of the default build set. Build/publish it with `spacetime`.
-default-members = ["crates/stdb_bevy", "crates/stdb_bindings", "crates/game"]
+default-members = [
+    "crates/stdb_bevy",
+    "crates/stdb_bevy_sdk",
+    "crates/stdb_bindings",
+    "crates/game",
+]
 
 [workspace.package]
 edition = "2024"
@@ -27,6 +32,7 @@ http = "1.4.1"
 smallvec = "1.15.2"
 # --- internal ---
 stdb_bevy = { path = "crates/stdb_bevy" }
+stdb_bevy_sdk = { path = "crates/stdb_bevy_sdk" }
 stdb_bindings = { path = "crates/stdb_bindings" }
 
 # Fast iterative dev: optimize dependencies, lightly optimize our own code.

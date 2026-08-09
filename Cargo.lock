@@ -2833,6 +2833,7 @@ dependencies = [
  "log",
  "spacetimedb-sdk",
  "stdb_bevy",
+ "stdb_bevy_sdk",
  "stdb_bindings",
  "wasm-bindgen-futures",
 ]
@@ -5572,12 +5573,20 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "crossbeam-channel",
- "http",
  "rand 0.10.1",
  "smallvec",
- "spacetimedb-sdk",
  "stdb_bevy",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "stdb_bevy_sdk"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "http",
+ "spacetimedb-sdk",
+ "stdb_bevy",
  "wasm-bindgen-futures",
 ]
 

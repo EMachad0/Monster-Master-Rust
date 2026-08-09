@@ -205,6 +205,32 @@ Reducer outcomes.
   rejected because a re-added dependency is a loud `Cargo.toml` diff in review, and this ADR
   states the rule.
 
+## Amendment: the row-path adapters needed a newtype
+
+Recorded at implementation, because the shape described under **Row path** above does not compile
+once the crates are split.
+
+The blanket adapters were all of the form `impl<T: SdkTrait> BridgeTrait for T`: a trait owned by
+`stdb_bevy` implemented for a bare type parameter. That is legal while both live in one crate, and
+the prototype was green because they did. From `stdb_bevy_sdk` the orphan rule rejects every one of
+them with E0210, "type parameter `T` must be used as the type parameter for some local type". The
+rule was checked here only for identity, where it dissolved, and not re-checked for the row path.
+
+The resolution is a local newtype in the adapter, `SdkTable<T>`, which wraps any SDK table handle
+and carries `RowInsertSource`, `RowDeleteSource`, `RowUpdateSource`, and `RowCollection`. A foreign
+trait may be implemented for a local self type, and the wrap is free. Moving the Bridge row traits
+into a third SDK-free crate does not help: the trait is still foreign to the adapter, so it is the
+same error.
+
+Two consequences follow.
+
+- `stdb_table!` moves into the adapter with it. Its expansion is now what wraps each handle, and
+  core cannot name an adapter type. The Game's call site is unchanged apart from the import.
+- `DbAccess` loses its blanket impl for the same reason, so the macro reaches the client cache
+  through `spacetimedb_sdk::DbContext::db` directly. `DbAccess` stays in core with no production
+  implementor, serving the hand-written registrations in the e2e suite and their fakes; whether it
+  earns its keep is left open.
+
 ## Supersedes
 
 - **The original ADR 0013** ("bridge clean architecture refactor"), which lived on a branch that

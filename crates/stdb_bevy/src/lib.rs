@@ -1,12 +1,13 @@
 //! Minimal, module-agnostic bridge between a SpacetimeDB connection and Bevy.
 //!
-//! This crate knows nothing about any specific Module.
+//! This crate knows nothing about any specific Module, and nothing about the SpacetimeDB SDK: it
+//! does not depend on it, so everything here runs against a plain `Send + Sync + 'static`
+//! connection value. The SDK drivers and adapters that supply one live in `stdb_bevy_sdk`.
 
 use bevy::prelude::*;
 
 use crate::connection::stdb_connection_driver::{
-    StdbConnectionDriver, connect_on_stdbconnect, disconnect_on_stdbdisconnect,
-    tick_stdbconnectiondriver,
+    connect_on_stdbconnect, disconnect_on_stdbdisconnect, tick_stdbconnectiondriver,
 };
 use crate::connection::stdb_intent::{
     StdbIntent, intends_to_be_connected, update_intent_on_stdbconnect,
@@ -30,6 +31,7 @@ pub use crate::component_sync::sync_app_ext::SyncAppExt;
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
 pub use crate::connection::db_access::DbAccess;
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection, StdbPreviousConnection};
+pub use crate::connection::stdb_connection_driver::StdbConnectionDriver;
 pub use crate::connection::stdb_identity::StdbIdentity;
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
 pub use crate::connection::stdb_token::StdbToken;
@@ -46,11 +48,6 @@ pub use crate::row::table_capabilities::{
     RowCollection, RowDeleteSource, RowInsertSource, RowUpdateSource,
 };
 pub use crate::row::table_registration::TableRegistration;
-pub use crate::sdk_impl::{
-    sdk_builder::SdkBuilder, sdk_connection_driver::SdkConnectionDriver,
-    sdk_plugin_ext::SdkPluginExt, sdk_reducer_sink_ext::SdkReducerSinkExt,
-    sdk_subscription_driver::SdkSubscriptionDriver,
-};
 pub use crate::subscription::stdb_subscription_driver::{
     NoSubscriptions, StdbSubscriptionDriver, SubscriptionId,
 };
@@ -71,7 +68,6 @@ mod error;
 mod lifecycle;
 mod reducer;
 mod row;
-mod sdk_impl;
 mod stdb_builder;
 mod subscription;
 mod utils;

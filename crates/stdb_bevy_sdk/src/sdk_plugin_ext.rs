@@ -2,8 +2,11 @@ use std::fmt::Debug;
 
 use spacetimedb_sdk::DbContext;
 
-use crate::sdk_impl::{SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder};
-use crate::{SdkBuilder, SdkConnectionDriver, SdkSubscriptionDriver, StdbConn, StdbPlugin};
+use crate::{
+    SdkBuilder, SdkConnectionDriver, SdkDbConnection, SdkSpacetimeModule, SdkSubscriptionBuilder,
+    SdkSubscriptionDriver,
+};
+use stdb_bevy::{StdbConn, StdbPlugin};
 
 /// Plugin constructor for the SDK drivers. An extension trait rather than an inherent constructor,
 /// so the SDK types it names stay beside the drivers instead of on the plugin's own definition.

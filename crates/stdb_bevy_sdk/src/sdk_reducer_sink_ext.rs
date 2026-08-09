@@ -6,7 +6,7 @@
 
 use std::fmt::Display;
 
-use crate::reducer::reducer_channel::{ReducerOutcome, ReducerOutcomeSink};
+use stdb_bevy::{ReducerOutcome, ReducerOutcomeSink};
 
 /// Adapts the reducer outcome sink to the callback the generated `<reducer>_then` expects.
 pub trait SdkReducerSinkExt {
@@ -48,8 +48,8 @@ mod tests {
     use bevy::prelude::*;
 
     use super::*;
-    use crate::ReducerFailed;
-    use crate::reducer::reducer_channel::{ReducerOutcomeChannel, drain_reducer_outcomes};
+    use stdb_bevy::ReducerFailed;
+    use stdb_bevy::test_support::{FakeDriver, test_app};
 
     // A reducer marker, the reducer counterpart of a row's marker type. Field-less: `K` is only a
     // type tag that keys the outcome event.
@@ -70,15 +70,13 @@ mod tests {
 
     #[test]
     fn host_abort_folds_into_reducer_failed() {
-        let mut app = App::new();
-        app.insert_resource(ReducerOutcomeChannel::new());
-        app.add_systems(Update, drain_reducer_outcomes);
+        let mut app = test_app(FakeDriver::default());
         app.init_resource::<FailedA>();
         app.add_observer(|on: On<ReducerFailed<A>>, mut f: ResMut<FailedA>| {
             f.0.push(on.event().error().to_string())
         });
 
-        let sink = app.world().resource::<ReducerOutcomeChannel>().sink();
+        let sink = app.world().resource::<ReducerOutcomeSink>().clone();
         sink.sdk_cb::<A, (), HostAbort>()(&(), Err(HostAbort));
         app.update();
 

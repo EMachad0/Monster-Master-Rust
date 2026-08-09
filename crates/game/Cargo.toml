@@ -19,7 +19,10 @@ bevy = { workspace = true, features = [
     "scene",
 ] }
 log.workspace = true
+# Both halves of the Bridge, named separately rather than behind a facade re-export: an
+# `stdb_bevy_sdk` import is what marks a call site as bound to the SpacetimeDB SDK.
 stdb_bevy.workspace = true
+stdb_bevy_sdk.workspace = true
 stdb_bindings.workspace = true
 spacetimedb-sdk.workspace = true
 
