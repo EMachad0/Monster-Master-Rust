@@ -11,8 +11,8 @@
 //! single `update` runs the fence and the per-table diff.
 
 use bevy::prelude::*;
-use stdb_bevy::__sdk::{DbContext, Table};
 use stdb_bevy::test_support::{CannedDriver, FakeDbContext, FakeTable};
+use stdb_bevy::{DbAccess, RowCollection};
 use stdb_bevy::{
     RowDeleted, RowInserted, RowMessagesMask, RowUpdated, StdbConnection, StdbPlugin,
     StdbPreviousConnection, StdbStatus, StdbSystemSet, TableRegistration,
@@ -32,7 +32,7 @@ fn player(id: u32, name: &str) -> Player {
 }
 
 /// Stand-in DbView with a `player()` accessor, mirroring a generated `RemoteTables`. The diff reads
-/// rows via `conn.db().player().iter()`.
+/// rows via `conn.db().player().rows()`.
 #[derive(Clone)]
 struct GameDb {
     players: Vec<Player>,
@@ -90,7 +90,7 @@ fn fence_app_emitting(old: Vec<Player>, new: Vec<Player>, emit: RowMessagesMask)
             // Raw `pk` (no macro), so a direct break can't hide behind the macro path.
             TableRegistration::pk(
                 |conn, fwd| fwd.forward(&conn.db().player()),
-                |c| c.db().player().iter().collect(),
+                |c| c.db().player().rows(),
                 |p| p.id,
                 emit,
                 "player",

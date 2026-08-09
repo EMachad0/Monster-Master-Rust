@@ -1,8 +1,7 @@
-use spacetimedb_sdk::table::{WithDelete, WithInsert, WithUpdate};
-
 use crate::{
     RowMessagesMask,
     row::row_channel::{RowSink, StdbRow},
+    row::table_capabilities::{RowDeleteSource, RowInsertSource, RowUpdateSource},
 };
 
 pub struct RowForwarder<R: StdbRow> {
@@ -25,7 +24,7 @@ impl<R: StdbRow> RowForwarder<R> {
 
     pub fn forward<T>(mut self, table: &T) -> Self
     where
-        T: WithInsert<Row = R> + WithDelete<Row = R> + WithUpdate<Row = R>,
+        T: RowInsertSource<Row = R> + RowDeleteSource<Row = R> + RowUpdateSource<Row = R>,
     {
         let RowMessagesMask {
             insert,
@@ -46,29 +45,28 @@ impl<R: StdbRow> RowForwarder<R> {
 
     fn inserts<T>(self, table: &T) -> Self
     where
-        T: WithInsert<Row = R>,
+        T: RowInsertSource<Row = R>,
     {
         let sink = self.sink.clone();
-        let _insert_handle = table.on_insert(move |_ctx, row| sink.insert(row.clone()));
+        table.on_insert(move |row| sink.insert(row.clone()));
         self
     }
 
     fn deletes<T>(self, table: &T) -> Self
     where
-        T: WithDelete<Row = R>,
+        T: RowDeleteSource<Row = R>,
     {
         let sink = self.sink.clone();
-        let _delete_handle = table.on_delete(move |_ctx, row| sink.delete(row.clone()));
+        table.on_delete(move |row| sink.delete(row.clone()));
         self
     }
 
     fn updates<T>(self, table: &T) -> Self
     where
-        T: WithUpdate<Row = R>,
+        T: RowUpdateSource<Row = R>,
     {
         let sink = self.sink.clone();
-        let _delete_handle =
-            table.on_update(move |_ctx, old, new| sink.update(old.clone(), new.clone()));
+        table.on_update(move |old, new| sink.update(old.clone(), new.clone()));
         self
     }
 }

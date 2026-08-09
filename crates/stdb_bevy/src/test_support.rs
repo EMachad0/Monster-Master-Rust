@@ -7,12 +7,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bevy::ecs::resource::Resource;
-use spacetimedb_sdk::{
-    ConnectionId, DbContext, Identity, Table as SdkTable,
-    TableWithPrimaryKey as SdkTableWithPrimaryKey,
-};
 
-use crate::StdbSubscriptionDriver;
+use crate::row::table_capabilities::{
+    RowCollection, RowDeleteSource, RowInsertSource, RowUpdateSource,
+};
+use crate::{DbAccess, StdbRow, StdbSubscriptionDriver};
 use crate::{LifecycleSink, StdbConn, StdbConnection, StdbConnectionDriver};
 use crate::{StdbBevyError, SubscriptionId};
 
@@ -149,13 +148,11 @@ impl StdbConnectionDriver for DeferredDriver {
 ///
 /// - **callbacks** (`inserts`/`updates`/`deletes`): replayed into a callback the moment it is
 ///   registered, driving the `RowForwarder` (callback → message);
-/// - **cache** (`rows`): yielded by `iter()`, the row set the resync diff reads from a
+/// - **cache** (`rows`): yielded by `rows()`, the row set the resync diff reads from a
 ///   `StdbPreviousConnection` / `StdbConnection`.
-///
-/// Its event context and callback ids are unit types — this table carries no event payload.
 #[derive(Default)]
 pub struct FakeTable<R> {
-    /// The rows the table "contains" — yielded by `iter()`, the path the resync diff reads.
+    /// The rows the table "contains", yielded by `rows()`, the path the resync diff reads.
     pub rows: Vec<R>,
     pub inserts: Vec<R>,
     pub updates: Vec<(R, R)>,
@@ -163,7 +160,7 @@ pub struct FakeTable<R> {
 }
 
 impl<R> FakeTable<R> {
-    /// A table whose cache (`iter()`) holds `rows`, with the callback fields left empty — the shape
+    /// A table whose cache (`rows()`) holds `rows`, with the callback fields left empty: the shape
     /// the resync diff reads. Pairs with `FakeDbContext` to present a connection's per-table rows.
     pub fn with_rows(rows: Vec<R>) -> Self {
         Self {
@@ -175,94 +172,46 @@ impl<R> FakeTable<R> {
     }
 }
 
-impl<R: 'static + Clone> SdkTable for FakeTable<R> {
+// The bridge-owned capability traits the row paths bind to. A generated handle gets them from the
+// SDK adapter's blanket impls; the fake implements them directly so it names no SDK type, which
+// also means it must not implement the SDK table traits, or those blanket impls would collide with
+// these.
+impl<R: StdbRow> RowInsertSource for FakeTable<R> {
     type Row = R;
-    type EventContext = ();
-    type InsertCallbackId = ();
-    type DeleteCallbackId = ();
 
-    fn count(&self) -> u64 {
-        self.rows.len() as u64
-    }
-    fn iter(&self) -> impl Iterator<Item = R> + '_ {
-        self.rows.iter().cloned()
-    }
-    fn on_insert(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {
+    fn on_insert(&self, mut cb: impl FnMut(&R) + Send + 'static) {
         for r in &self.inserts {
-            cb(&(), r);
+            cb(r);
         }
     }
-    fn remove_on_insert(&self, _id: Self::InsertCallbackId) {}
-    fn on_delete(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::DeleteCallbackId {
-        for r in &self.deletes {
-            cb(&(), r);
-        }
-    }
-    fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
 }
 
-impl<R: 'static + Clone> SdkTableWithPrimaryKey for FakeTable<R> {
-    type UpdateCallbackId = ();
-    fn on_update(
-        &self,
-        mut cb: impl FnMut(&(), &R, &R) + Send + 'static,
-    ) -> Self::UpdateCallbackId {
-        for (old, new) in &self.updates {
-            cb(&(), old, new);
-        }
-    }
-    fn remove_on_update(&self, _id: Self::UpdateCallbackId) {}
-}
-
-// The granular capability traits the `RowForwarder` binds to, alongside the `Table` /
-// `TableWithPrimaryKey` impls above: the two families are independent (nothing blanket-implements
-// one from the other), and generated table handles carry both, so a fake standing in for one has to
-// as well. The paths are fully qualified and deliberately not imported: `FakeTable` presents
-// `count`/`iter` under two traits at once, and bringing both into scope makes every unqualified call
-// in this module ambiguous.
-impl<R: 'static + Clone> spacetimedb_sdk::table::TableLike for FakeTable<R> {
+impl<R: StdbRow> RowDeleteSource for FakeTable<R> {
     type Row = R;
-    type EventContext = ();
 
-    fn count(&self) -> u64 {
-        self.rows.len() as u64
-    }
-    fn iter(&self) -> impl Iterator<Item = R> + '_ {
-        self.rows.iter().cloned()
-    }
-}
-
-impl<R: 'static + Clone> spacetimedb_sdk::table::WithInsert for FakeTable<R> {
-    type InsertCallbackId = ();
-    fn on_insert(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::InsertCallbackId {
-        for r in &self.inserts {
-            cb(&(), r);
-        }
-    }
-    fn remove_on_insert(&self, _id: Self::InsertCallbackId) {}
-}
-
-impl<R: 'static + Clone> spacetimedb_sdk::table::WithDelete for FakeTable<R> {
-    type DeleteCallbackId = ();
-    fn on_delete(&self, mut cb: impl FnMut(&(), &R) + Send + 'static) -> Self::DeleteCallbackId {
+    fn on_delete(&self, mut cb: impl FnMut(&R) + Send + 'static) {
         for r in &self.deletes {
-            cb(&(), r);
+            cb(r);
         }
     }
-    fn remove_on_delete(&self, _id: Self::DeleteCallbackId) {}
 }
 
-impl<R: 'static + Clone> spacetimedb_sdk::table::WithUpdate for FakeTable<R> {
-    type UpdateCallbackId = ();
-    fn on_update(
-        &self,
-        mut cb: impl FnMut(&(), &R, &R) + Send + 'static,
-    ) -> Self::UpdateCallbackId {
+impl<R: StdbRow> RowUpdateSource for FakeTable<R> {
+    type Row = R;
+
+    fn on_update(&self, mut cb: impl FnMut(&R, &R) + Send + 'static) {
         for (old, new) in &self.updates {
-            cb(&(), old, new);
+            cb(old, new);
         }
     }
-    fn remove_on_update(&self, _id: Self::UpdateCallbackId) {}
+}
+
+impl<R: StdbRow> RowCollection for FakeTable<R> {
+    type Row = R;
+
+    fn rows(&self) -> Vec<R> {
+        self.rows.clone()
+    }
 }
 
 /// A driver that connects synchronously, handing back a caller-supplied connection value. Generic
@@ -296,9 +245,8 @@ impl<C: StdbConn + Clone> StdbConnectionDriver for CannedDriver<C> {
 }
 
 /// A connection whose `db()` exposes a caller-supplied DbView `V`, so the `stdb_table!` macro's
-/// `conn.db().<table>()` body — and the resync diff's per-table reads — run in a unit test. Each
-/// test supplies its own table accessors through `V`, the way a generated `RemoteTables` does. Only
-/// `db()` carries meaning here; the other accessors are unused stubs.
+/// `conn.db().<table>()` body (and the resync diff's per-table reads) run in a unit test. Each
+/// test supplies its own table accessors through `V`, the way a generated `RemoteTables` does.
 #[derive(Clone)]
 pub struct FakeDbContext<V> {
     db: V,
@@ -310,36 +258,11 @@ impl<V> FakeDbContext<V> {
     }
 }
 
-impl<V: Send + Sync + 'static> DbContext for FakeDbContext<V> {
-    type DbView = V;
-    type Reducers = ();
-    type Procedures = ();
-    type SubscriptionBuilder = ();
+impl<V> DbAccess for FakeDbContext<V> {
+    type Db = V;
 
     fn db(&self) -> &V {
         &self.db
-    }
-    fn reducers(&self) -> &() {
-        &()
-    }
-    fn procedures(&self) -> &() {
-        &()
-    }
-    fn is_active(&self) -> bool {
-        true
-    }
-    fn disconnect(&self) -> spacetimedb_sdk::Result<()> {
-        unimplemented!("FakeDbContext is a read-only test double")
-    }
-    fn subscription_builder(&self) {}
-    fn try_identity(&self) -> Option<Identity> {
-        None
-    }
-    fn connection_id(&self) -> ConnectionId {
-        unimplemented!("FakeDbContext has no ConnectionId")
-    }
-    fn try_connection_id(&self) -> Option<ConnectionId> {
-        None
     }
 }
 
@@ -367,7 +290,7 @@ mod tests {
     }
 
     /// Stand-in DbView: per-table accessors returning each table's cached rows, mirroring a
-    /// generated `RemoteTables`. The resync diff reaches rows via `conn.db().<table>().iter()`.
+    /// generated `RemoteTables`. The resync diff reaches rows via `conn.db().<table>().rows()`.
     #[derive(Clone)]
     struct GameDb {
         players: Vec<Player>,
@@ -384,23 +307,22 @@ mod tests {
     }
 
     #[test]
-    fn fake_table_iter_yields_its_rows() {
+    fn fake_table_rows_yields_its_cached_rows() {
         let table = FakeTable::with_rows(vec![Player { id: 1 }, Player { id: 2 }]);
 
         assert_eq!(
-            table.iter().collect::<Vec<_>>(),
+            table.rows(),
             vec![Player { id: 1 }, Player { id: 2 }],
-            "iter() must present the cached rows — the path the resync diff reads — not only callbacks",
+            "rows() must present the cache (the path the resync diff reads), not only callbacks",
         );
     }
 
     #[test]
-    fn fake_table_iter_is_empty_with_no_rows() {
+    fn fake_table_rows_is_empty_with_no_rows() {
         let table: FakeTable<Player> = FakeTable::with_rows(vec![]);
 
-        assert_eq!(
-            table.iter().count(),
-            0,
+        assert!(
+            table.rows().is_empty(),
             "an empty cache yields no rows, so the diff reads the table as empty (ghost-everything)",
         );
     }
@@ -413,12 +335,12 @@ mod tests {
         });
 
         assert_eq!(
-            conn.db().player().iter().collect::<Vec<_>>(),
+            conn.db().player().rows(),
             vec![Player { id: 1 }],
-            "db().<table>().iter() presents that table's cache — the diff's read path",
+            "db().<table>().rows() presents that table's cache, the diff's read path",
         );
         assert_eq!(
-            conn.db().monster().iter().collect::<Vec<_>>(),
+            conn.db().monster().rows(),
             vec![Monster { id: 7 }, Monster { id: 8 }],
             "each table accessor presents its own rows independently",
         );

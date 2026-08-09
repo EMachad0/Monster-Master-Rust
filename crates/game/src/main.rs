@@ -24,9 +24,10 @@ fn main() {
                 stdb_table!(player => Player, key = identity),
                 stdb_table!(cursor => Cursor, key = id),
             ])
+            // The macro-free form of the `player` registration above, kept as a worked example.
             // .add_tables([stdb_bevy::TableRegistration::pk(
-            //     |conn, fwd| fwd.forward(&conn.db().player()),
-            //     |conn| conn.db().player().iter().collect(),
+            //     |conn, fwd| fwd.forward(&conn.db.player()),
+            //     |conn| stdb_bevy::RowCollection::rows(&conn.db.player()),
             //     |row| row.identity,
             //     stdb_bevy::RowMessagesMask::ALL,
             //     "player",

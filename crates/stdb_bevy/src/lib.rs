@@ -30,6 +30,7 @@ pub use crate::component_sync::row_entity_mapping::RowEntities;
 pub use crate::component_sync::stdb_sync::StdbSync;
 pub use crate::component_sync::sync_app_ext::SyncAppExt;
 pub use crate::connection::connection_events::{StdbConnect, StdbDisconnect};
+pub use crate::connection::db_access::DbAccess;
 pub use crate::connection::stdb_connection::{StdbConn, StdbConnection, StdbPreviousConnection};
 pub use crate::connection::stdb_identity::StdbIdentity;
 pub use crate::connection::stdb_status::{StdbStatus, is_stdb_connected};
@@ -43,6 +44,9 @@ pub use crate::reducer::reducer_events::{ReducerCommitted, ReducerFailed};
 pub use crate::row::row_channel::StdbRow;
 pub use crate::row::row_forwarder::RowForwarder;
 pub use crate::row::row_messages::{RowDeleted, RowInserted, RowMessagesMask, RowUpdated};
+pub use crate::row::table_capabilities::{
+    RowCollection, RowDeleteSource, RowInsertSource, RowUpdateSource,
+};
 pub use crate::row::table_registration::TableRegistration;
 pub use crate::sdk_impl::{
     sdk_builder::SdkBuilder, sdk_connection_driver::SdkConnectionDriver,
@@ -60,7 +64,6 @@ pub use crate::subscription::subscription_events::{
     SubscriptionApplied, SubscriptionFailed, SubscriptionUnsubscribed,
 };
 pub use crate::utils::backoff::{Backoff, Jitter};
-pub use spacetimedb_sdk as __sdk;
 pub use stdb_builder::{Drivers, StdbBuilder};
 
 mod component_sync;
